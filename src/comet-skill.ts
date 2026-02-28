@@ -1,28 +1,32 @@
-import type { Page } from "playwright-core";
-import type { TaskMode, TaskResult, CometConfig } from "./types.js";
-import { DEFAULT_CONFIG } from "./types.js";
+import type { CDPClient, TaskMode, TaskResult, CometConfig } from "./types.js";
+import { DEFAULT_CONFIG, AGENT_TIMEOUT } from "./types.js";
 import { connect } from "./cdp-client.js";
 import { injectIntent } from "./intent-injector.js";
-import { monitorStream } from "./stream-monitor.js";
-import type { MonitorResult } from "./stream-monitor.js";
-import { extractResult } from "./result-extractor.js";
+import { pollForResult } from "./dom-poller.js";
+
+export interface PollOpts {
+  intervalMs?: number;
+  maxIdlePolls?: number;
+  warmUpMs?: number;
+  reconnectConfig?: CometConfig;
+}
 
 export interface SkillDeps {
-  connect: (config: CometConfig) => Promise<{ page: Page }>;
-  injectIntent: (page: Page, task: string, mode: TaskMode) => Promise<void>;
-  monitorStream: (page: Page, config: CometConfig) => Promise<MonitorResult>;
-  extractResult: (
-    page: Page,
+  connect: (config: CometConfig) => Promise<{ client: CDPClient }>;
+  injectIntent: (client: CDPClient, task: string, mode: TaskMode) => Promise<void>;
+  pollForResult: (
+    client: CDPClient,
     mode: TaskMode,
-    startTime: number
+    startTime: number,
+    timeoutMs: number,
+    opts?: PollOpts
   ) => Promise<TaskResult>;
 }
 
 const defaultDeps: SkillDeps = {
   connect,
   injectIntent,
-  monitorStream,
-  extractResult,
+  pollForResult,
 };
 
 export async function executeTask(
@@ -32,23 +36,77 @@ export async function executeTask(
   deps: SkillDeps = defaultDeps
 ): Promise<TaskResult> {
   const startTime = Date.now();
-  const { page } = await deps.connect(config);
+  const { client } = await deps.connect(config);
 
-  const monitorPromise = deps.monitorStream(page, config);
-  await deps.injectIntent(page, query, mode);
-  const streamResult = await monitorPromise;
+  await ensureCleanHomePage(client);
 
-  if (streamResult.fullText) {
-    return {
-      answer: streamResult.fullText,
-      citations: [],
-      researchSteps: streamResult.chunks
-        .filter((c) => c.type === "research_progress")
-        .map((c) => `Step ${c.step}/${c.totalSteps}`),
-      mode,
-      durationMs: Date.now() - startTime,
-    };
+  const urlBefore = await getPageUrl(client);
+  await deps.injectIntent(client, query, mode);
+  await waitForPageTransition(client, urlBefore);
+
+  const timeoutMs = mode === "agent_task" ? Math.max(config.timeout, AGENT_TIMEOUT) : config.timeout;
+  const pollOpts: PollOpts =
+    mode === "agent_task"
+      ? { warmUpMs: 30_000, reconnectConfig: config }
+      : { reconnectConfig: config };
+  return deps.pollForResult(client, mode, startTime, timeoutMs, pollOpts);
+}
+
+async function getPageUrl(client: CDPClient): Promise<string> {
+  const { result } = await client.Runtime.evaluate({
+    expression: "window.location.href",
+    returnByValue: true,
+  });
+  return result.value as string;
+}
+
+async function ensureCleanHomePage(client: CDPClient): Promise<void> {
+  await client.Page.navigate({ url: "https://www.perplexity.ai/" });
+  try {
+    await Promise.race([
+      client.Page.loadEventFired(),
+      sleep(5000),
+    ]);
+  } catch { /* timeout ok */ }
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      const { result } = await client.Runtime.evaluate({
+        expression: `(() => {
+          const el = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+          if (!el) return false;
+          const text = el.innerText || el.value || '';
+          return text.trim() === '' || text.trim() === 'Ask anything...';
+        })()`,
+        returnByValue: true,
+      });
+      if (result.value === true) return;
+    } catch { /* page loading */ }
+    await sleep(500);
   }
+  throw new Error("Comet home page input was not ready/clean within timeout");
+}
 
-  return deps.extractResult(page, mode, startTime);
+async function waitForPageTransition(
+  client: CDPClient,
+  previousUrl: string,
+  timeoutMs = 10_000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const url = await getPageUrl(client);
+    if (url !== previousUrl) return;
+
+    const { result } = await client.Runtime.evaluate({
+      expression: `!!document.querySelector('[class*="animate-spin"], [class*="animate-pulse"]')`,
+      returnByValue: true,
+    });
+    if (result.value === true) return;
+
+    await sleep(300);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }

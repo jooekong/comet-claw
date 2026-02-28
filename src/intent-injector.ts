@@ -1,8 +1,7 @@
-import type { Page } from "playwright-core";
-import type { TaskMode } from "./types.js";
+import type { CDPClient, TaskMode } from "./types.js";
 
 export const INPUT_SELECTORS = [
-  '[data-testid="assistant-input"]',
+  '[contenteditable="true"]',
   'textarea[placeholder*="Ask"]',
   "textarea",
 ];
@@ -14,37 +13,76 @@ export const MODE_SELECTORS: Record<string, string> = {
 };
 
 export async function injectIntent(
-  page: Page,
+  client: CDPClient,
   task: string,
   mode: TaskMode = "search"
 ): Promise<void> {
-  if (mode !== "agent_task") {
-    await switchMode(page, mode);
+  await client.Page.bringToFront();
+  await sleep(300);
+
+  if (mode === "deep_research") {
+    await switchMode(client, mode);
   }
 
-  const inputSelector = await findInput(page);
-  await fillInput(page, inputSelector, task);
-  await page.press(inputSelector, "Enter");
+  const inputSelector = await findInput(client);
+  await fillInput(client, inputSelector, task);
+  await sleep(300);
+  await pressEnter(client);
 }
+
+const MODE_TEXT_MAP: Record<string, string[]> = {
+  search: ["Search"],
+  deep_research: ["Deep Research", "Research"],
+};
 
 export async function switchMode(
-  page: Page,
+  client: CDPClient,
   mode: TaskMode
 ): Promise<void> {
-  const selector = MODE_SELECTORS[mode];
-  if (!selector) return;
+  const selectorGroup = MODE_SELECTORS[mode];
+  if (!selectorGroup) return;
 
-  const element = await page.$(selector);
-  if (element) {
-    await element.click();
-    await page.waitForTimeout(300);
+  const selectors = selectorGroup.split(", ");
+  for (const sel of selectors) {
+    const { result } = await client.Runtime.evaluate({
+      expression: `(() => {
+        const el = document.querySelector(${JSON.stringify(sel)});
+        if (el) { el.click(); return true; }
+        return false;
+      })()`,
+      returnByValue: true,
+    });
+    if (result.value === true) {
+      await sleep(300);
+      return;
+    }
   }
+
+  const textLabels = MODE_TEXT_MAP[mode];
+  if (!textLabels) return;
+  await client.Runtime.evaluate({
+    expression: `(() => {
+      const labels = ${JSON.stringify(textLabels)};
+      for (const btn of document.querySelectorAll('button')) {
+        const text = btn.innerText.trim();
+        if (labels.includes(text) && btn.offsetParent !== null) {
+          btn.click();
+          return;
+        }
+      }
+    })()`,
+    awaitPromise: true,
+  });
+  await sleep(300);
 }
 
-export async function findInput(page: Page): Promise<string> {
+export async function findInput(client: CDPClient): Promise<string> {
   for (const selector of INPUT_SELECTORS) {
-    const el = await page.$(selector);
-    if (el) return selector;
+    const { result } = await client.Runtime.evaluate({
+      expression: `document.querySelector(${JSON.stringify(selector)}) !== null`,
+      returnByValue: true,
+    });
+    if (result.value === true) return selector;
   }
   throw new Error(
     `Cannot find input element. Tried: ${INPUT_SELECTORS.join(", ")}`
@@ -52,37 +90,42 @@ export async function findInput(page: Page): Promise<string> {
 }
 
 export async function fillInput(
-  page: Page,
+  client: CDPClient,
   selector: string,
   text: string
 ): Promise<void> {
-  try {
-    await page.fill(selector, text);
-    return;
-  } catch {
-    // fallback to type()
-  }
+  await client.Runtime.evaluate({
+    expression: `(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) throw new Error("Element not found: " + ${JSON.stringify(selector)});
+      el.focus();
+      if (el.click) el.click();
+      const dt = new DataTransfer();
+      dt.setData("text/plain", ${JSON.stringify(text)});
+      el.dispatchEvent(new ClipboardEvent("paste", {
+        clipboardData: dt,
+        bubbles: true,
+        cancelable: true,
+      }));
+    })()`,
+    awaitPromise: true,
+  });
+}
 
-  try {
-    await page.click(selector);
-    await page.keyboard.press("Meta+a");
-    await page.type(selector, text, { delay: 10 });
-    return;
-  } catch {
-    // fallback to React setter
-  }
+async function pressEnter(client: CDPClient): Promise<void> {
+  await client.Runtime.evaluate({
+    expression: `(() => {
+      const el = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+      if (!el) return;
+      el.focus();
+      const opts = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+      el.dispatchEvent(new KeyboardEvent("keydown", opts));
+      el.dispatchEvent(new KeyboardEvent("keyup", { ...opts, cancelable: false }));
+    })()`,
+    awaitPromise: true,
+  });
+}
 
-  await page.evaluate(
-    ({ selector: sel, text: val }) => {
-      const input = document.querySelector(sel) as HTMLTextAreaElement | null;
-      if (!input) throw new Error(`Element not found: ${sel}`);
-      const setter = Object.getOwnPropertyDescriptor(
-        window.HTMLTextAreaElement.prototype,
-        "value"
-      )?.set;
-      setter?.call(input, val);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    },
-    { selector, text }
-  );
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }

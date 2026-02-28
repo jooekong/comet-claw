@@ -1,32 +1,39 @@
-import type { Page } from "playwright-core";
-import type { TaskResult, TaskMode, Citation } from "./types.js";
+import type { CDPClient, TaskResult, TaskMode, Citation } from "./types.js";
 
 export async function extractResult(
-  page: Page,
+  client: CDPClient,
   mode: TaskMode,
   startTime: number
 ): Promise<TaskResult> {
-  const raw = await page.evaluate(() => {
-    const answerEl = document.querySelector(".prose") as HTMLElement | null;
-    const answer = answerEl?.innerText ?? "";
+  const { result } = await client.Runtime.evaluate({
+    expression: `(() => {
+      const answerEl = document.querySelector(".prose");
+      const answer = answerEl ? answerEl.innerText : "";
 
-    const citationEls = document.querySelectorAll("a[data-citation]");
-    const citations = Array.from(citationEls).map((a) => ({
-      text: (a as HTMLAnchorElement).innerText,
-      url: (a as HTMLAnchorElement).href,
-    }));
+      const citationEls = document.querySelectorAll("a[data-citation]");
+      const citations = Array.from(citationEls).map(a => ({
+        text: a.innerText,
+        url: a.href,
+      }));
 
-    const stepEls = document.querySelectorAll(".research-step");
-    const researchSteps = Array.from(stepEls).map(
-      (s) => (s as HTMLElement).innerText
-    );
+      const stepEls = document.querySelectorAll(".research-step");
+      const researchSteps = Array.from(stepEls).map(s => s.innerText);
 
-    return { answer, citations, researchSteps };
+      return { answer, citations, researchSteps };
+    })()`,
+    returnByValue: true,
+    awaitPromise: true,
   });
+
+  const raw = result.value as {
+    answer: string;
+    citations: Citation[];
+    researchSteps: string[];
+  };
 
   return {
     answer: raw.answer,
-    citations: raw.citations as Citation[],
+    citations: raw.citations,
     researchSteps: raw.researchSteps,
     mode,
     durationMs: Date.now() - startTime,

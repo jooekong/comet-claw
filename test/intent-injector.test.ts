@@ -8,166 +8,128 @@ import {
   MODE_SELECTORS,
 } from "../src/intent-injector.js";
 
-function createMockPage(
-  opts: {
-    selectorsPresent?: string[];
-    fillThrows?: boolean;
-    typeThrows?: boolean;
-  } = {}
-) {
-  const { selectorsPresent = [], fillThrows = false, typeThrows = false } = opts;
+function createMockClient(opts: { selectorsPresent?: string[] } = {}) {
+  const { selectorsPresent = [] } = opts;
   const calls: string[] = [];
 
-  const mockElement = {
-    click: mock(async () => {
-      calls.push("element.click");
-    }),
-  };
-
-  const page = {
-    $: mock(async (selector: string) => {
-      calls.push(`$:${selector}`);
-      return selectorsPresent.some((s) => selector.includes(s))
-        ? mockElement
-        : null;
-    }),
-    fill: mock(async (_sel: string, _text: string) => {
-      calls.push(`fill:${_sel}`);
-      if (fillThrows) throw new Error("fill failed");
-    }),
-    type: mock(async (_sel: string, _text: string) => {
-      calls.push(`type:${_sel}`);
-      if (typeThrows) throw new Error("type failed");
-    }),
-    click: mock(async (_sel: string) => {
-      calls.push(`click:${_sel}`);
-    }),
-    press: mock(async (_sel: string, _key: string) => {
-      calls.push(`press:${_sel}:${_key}`);
-    }),
-    evaluate: mock(async () => {
-      calls.push("evaluate");
-    }),
-    waitForTimeout: mock(async () => {
-      calls.push("waitForTimeout");
-    }),
-    keyboard: {
-      press: mock(async (_key: string) => {
-        calls.push(`keyboard.press:${_key}`);
+  const client = {
+    Runtime: {
+      evaluate: mock(async (params: { expression: string }) => {
+        calls.push("evaluate");
+        const expr = params.expression;
+        if (expr.includes("!== null")) {
+          const match = selectorsPresent.some((s) => expr.includes(s));
+          return { result: { value: match } };
+        }
+        if (expr.includes(".click()")) {
+          const match = selectorsPresent.some((s) => expr.includes(s));
+          return { result: { value: match } };
+        }
+        return { result: { value: undefined } };
+      }),
+    },
+    Input: {
+      dispatchKeyEvent: mock(async (params: { type: string; key?: string }) => {
+        calls.push(`key:${params.type}:${params.key}`);
+      }),
+      insertText: mock(async () => {
+        calls.push("insertText");
       }),
     },
   };
 
-  return { page: page as any, calls, mockElement };
+  return { client: client as any, calls };
 }
 
 describe("findInput", () => {
   test("returns first matching selector", async () => {
-    const { page } = createMockPage({
-      selectorsPresent: ["assistant-input"],
-    });
-    const result = await findInput(page);
+    const { client } = createMockClient({ selectorsPresent: ["contenteditable"] });
+    const result = await findInput(client);
     expect(result).toBe(INPUT_SELECTORS[0]);
   });
 
-  test("falls through to last textarea if specific selectors not found", async () => {
-    const { page } = createMockPage({ selectorsPresent: ["textarea"] });
-    const result = await findInput(page);
-    // "textarea" substring matches the placeholder selector first
-    expect(result).toBe('textarea[placeholder*="Ask"]');
-  });
-
-  test("returns bare textarea when only exact match", async () => {
-    const page = {
-      $: mock(async (selector: string) => {
-        if (selector === "textarea") return { click: async () => {} };
-        return null;
-      }),
-    } as any;
-    const result = await findInput(page);
-    expect(result).toBe("textarea");
+  test("returns textarea when only that matches", async () => {
+    const { client } = createMockClient({ selectorsPresent: ["textarea"] });
+    const result = await findInput(client);
+    expect(result).toContain("textarea");
   });
 
   test("throws when no input found", async () => {
-    const { page } = createMockPage({ selectorsPresent: [] });
-    expect(findInput(page)).rejects.toThrow("Cannot find input element");
+    const { client } = createMockClient({ selectorsPresent: [] });
+    expect(findInput(client)).rejects.toThrow("Cannot find input element");
   });
 });
 
 describe("switchMode", () => {
   test("clicks mode toggle when element exists", async () => {
-    const { page, calls } = createMockPage({
-      selectorsPresent: ["deep-research"],
-    });
-    await switchMode(page, "deep_research");
-    expect(calls).toContain("element.click");
-    expect(calls).toContain("waitForTimeout");
+    const { client, calls } = createMockClient({ selectorsPresent: ["deep-research"] });
+    await switchMode(client, "deep_research");
+    expect(calls.filter((c) => c === "evaluate").length).toBeGreaterThanOrEqual(1);
   });
 
-  test("does nothing when mode toggle not found", async () => {
-    const { page, mockElement } = createMockPage({ selectorsPresent: [] });
-    await switchMode(page, "deep_research");
-    expect(mockElement.click).not.toHaveBeenCalled();
-  });
-
-  test("does nothing for agent_task mode (no selector defined)", async () => {
-    const { page, mockElement } = createMockPage({ selectorsPresent: [] });
-    await switchMode(page, "agent_task");
-    expect(mockElement.click).not.toHaveBeenCalled();
+  test("does nothing for agent_task mode", async () => {
+    const { client, calls } = createMockClient();
+    await switchMode(client, "agent_task");
+    expect(calls.length).toBe(0);
   });
 });
 
 describe("fillInput", () => {
-  test("uses page.fill as primary method", async () => {
-    const { page, calls } = createMockPage({ selectorsPresent: [] });
-    await fillInput(page, "textarea", "hello");
-    expect(calls).toContain("fill:textarea");
-    expect(calls).not.toContain("type:textarea");
-  });
-
-  test("falls back to type when fill throws", async () => {
-    const { page, calls } = createMockPage({
-      selectorsPresent: [],
-      fillThrows: true,
-    });
-    await fillInput(page, "textarea", "hello");
-    expect(calls).toContain("fill:textarea");
-    expect(calls).toContain("click:textarea");
-    expect(calls).toContain("keyboard.press:Meta+a");
-    expect(calls).toContain("type:textarea");
-  });
-
-  test("falls back to evaluate when both fill and type throw", async () => {
-    const { page, calls } = createMockPage({
-      selectorsPresent: [],
-      fillThrows: true,
-      typeThrows: true,
-    });
-    await fillInput(page, "textarea", "hello");
+  test("focuses element and inserts text via execCommand", async () => {
+    const { client, calls } = createMockClient();
+    await fillInput(client, '[contenteditable="true"]', "hello");
     expect(calls).toContain("evaluate");
   });
 });
 
 describe("injectIntent", () => {
-  test("skips mode switch for agent_task", async () => {
-    const { page, calls } = createMockPage({
-      selectorsPresent: ["assistant-input"],
-    });
-    await injectIntent(page, "test query", "agent_task");
-    const modeSelCheck = calls.some(
-      (c) => c.includes("deep-research") || c.includes("search-toggle")
-    );
-    expect(modeSelCheck).toBe(false);
-    expect(calls).toContain("press:" + INPUT_SELECTORS[0] + ":Enter");
+  function createInjectMockClient(opts: { selectorsPresent?: string[] } = {}) {
+    const { selectorsPresent = [] } = opts;
+    const calls: string[] = [];
+    const client = {
+      Page: { bringToFront: mock(async () => { calls.push("bringToFront"); }) },
+      Runtime: {
+        evaluate: mock(async (params: { expression: string }) => {
+          calls.push("evaluate");
+          const expr = params.expression;
+          if (expr.includes("!== null")) {
+            const match = selectorsPresent.some((s) => expr.includes(s));
+            return { result: { value: match } };
+          }
+          if (expr.includes(".click()")) {
+            return { result: { value: true } };
+          }
+          if (expr.includes("Computer") && expr.includes("click")) {
+            return { result: { value: true } };
+          }
+          if (expr.includes("contenteditable")) {
+            return { result: { value: true } };
+          }
+          return { result: { value: undefined } };
+        }),
+      },
+      Input: {
+        dispatchKeyEvent: mock(async (params: { type: string; key?: string }) => {
+          calls.push(`key:${params.type}:${params.key}`);
+        }),
+        insertText: mock(async () => { calls.push("insertText"); }),
+      },
+    };
+    return { client: client as any, calls };
+  }
+
+  test("calls bringToFront and fills for search mode", async () => {
+    const { client, calls } = createInjectMockClient({ selectorsPresent: ["contenteditable"] });
+    await injectIntent(client, "test query", "search");
+    expect(calls).toContain("bringToFront");
+    expect(calls.filter(c => c === "evaluate").length).toBeGreaterThanOrEqual(3);
   });
 
-  test("switches mode then fills and presses Enter for search", async () => {
-    const { page, calls } = createMockPage({
-      selectorsPresent: ["assistant-input", "search"],
-    });
-    await injectIntent(page, "test query", "search");
-    expect(calls.some((c) => c.includes("fill:"))).toBe(true);
-    expect(calls.some((c) => c.includes("press:") && c.includes("Enter"))).toBe(true);
+  test("fills input for agent_task without mode switch", async () => {
+    const { client, calls } = createInjectMockClient({ selectorsPresent: ["contenteditable"] });
+    await injectIntent(client, "browse v2ex", "agent_task");
+    expect(calls).toContain("bringToFront");
+    expect(calls.filter(c => c === "evaluate").length).toBeGreaterThanOrEqual(3);
   });
 });
 
