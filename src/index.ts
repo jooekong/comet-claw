@@ -8,7 +8,7 @@ function log(msg: string): void {
   process.stderr.write(`[comet-claw] ${msg}\n`);
 }
 
-function parseArgs(args: string[]): CLICommand {
+export function parseArgs(args: string[]): CLICommand {
   const [name, ...rest] = args;
   const query = rest.join(" ");
 
@@ -77,4 +77,10 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+const isDirectRun =
+  process.argv[1]?.endsWith("index.ts") ||
+  process.argv[1]?.endsWith("comet-claw");
+
+if (isDirectRun) {
+  main();
+}

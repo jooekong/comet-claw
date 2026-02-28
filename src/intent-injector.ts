@@ -1,14 +1,15 @@
 import type { Page } from "playwright-core";
 import type { TaskMode } from "./types.js";
 
-const INPUT_SELECTORS = [
+export const INPUT_SELECTORS = [
   '[data-testid="assistant-input"]',
   'textarea[placeholder*="Ask"]',
   "textarea",
 ];
 
-const MODE_SELECTORS: Record<string, string> = {
-  deep_research: '[data-mode="deep-research"], [data-testid="deep-research-toggle"]',
+export const MODE_SELECTORS: Record<string, string> = {
+  deep_research:
+    '[data-mode="deep-research"], [data-testid="deep-research-toggle"]',
   search: '[data-mode="search"], [data-testid="search-toggle"]',
 };
 
@@ -26,7 +27,10 @@ export async function injectIntent(
   await page.press(inputSelector, "Enter");
 }
 
-async function switchMode(page: Page, mode: TaskMode): Promise<void> {
+export async function switchMode(
+  page: Page,
+  mode: TaskMode
+): Promise<void> {
   const selector = MODE_SELECTORS[mode];
   if (!selector) return;
 
@@ -37,7 +41,7 @@ async function switchMode(page: Page, mode: TaskMode): Promise<void> {
   }
 }
 
-async function findInput(page: Page): Promise<string> {
+export async function findInput(page: Page): Promise<string> {
   for (const selector of INPUT_SELECTORS) {
     const el = await page.$(selector);
     if (el) return selector;
@@ -47,7 +51,7 @@ async function findInput(page: Page): Promise<string> {
   );
 }
 
-async function fillInput(
+export async function fillInput(
   page: Page,
   selector: string,
   text: string
