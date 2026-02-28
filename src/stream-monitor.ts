@@ -79,7 +79,7 @@ export async function monitorStream(
   return promise;
 }
 
-function parseChunk(data: Record<string, unknown>): StreamChunk {
+export function parseChunk(data: Record<string, unknown>): StreamChunk {
   const type = data.type as string | undefined;
 
   if (type === "answer_chunk") {
@@ -99,7 +99,7 @@ function parseChunk(data: Record<string, unknown>): StreamChunk {
   return { type: "unknown", raw: data };
 }
 
-function parseAction(msg: Record<string, unknown>): AgentAction | null {
+export function parseAction(msg: Record<string, unknown>): AgentAction | null {
   const method = msg.method as string | undefined;
   if (!method) return null;
 

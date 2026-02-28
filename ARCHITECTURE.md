@@ -16,13 +16,15 @@
 
 | 能力 | 状态 | 说明 |
 |------|------|------|
-| CDP 连接管理 | 规划中 | `src/cdp-client.ts` |
-| 意图注入 | 规划中 | `src/intent-injector.ts` |
-| SSE 流拦截 | 规划中 | `src/stream-monitor.ts` |
-| WebSocket 监控 | 规划中 | `src/stream-monitor.ts` |
-| 结果提取 | 规划中 | `src/result-extractor.ts` |
-| CLI 入口 | 规划中 | `src/index.ts` |
-| OpenClaw Skill | 规划中 | `skills/comet-perplexity/SKILL.md` |
+| CDP 连接管理 | 已实现 | `src/cdp-client.ts`，含指数退避重连 |
+| 意图注入 | 已实现 | `src/intent-injector.ts`，3 级 fallback |
+| SSE 流拦截 | 已实现 | `src/stream-monitor.ts` |
+| WebSocket 监控 | 已实现 | `src/stream-monitor.ts`（Agent 动作解析） |
+| 结果提取 | 已实现 | `src/result-extractor.ts` |
+| Skill 编排 | 已实现 | `src/comet-skill.ts`，依赖注入支持 |
+| CLI 入口 | 已实现 | `src/index.ts`，JSON stdout 输出 |
+| OpenClaw Skill | 已实现 | `skills/comet-perplexity/SKILL.md` |
+| 单元测试 | 已实现 | 50 tests across 6 files |
 
 ## 架构概览
 
@@ -77,7 +79,9 @@
 
 ## 已知问题
 
-暂无（项目初始化阶段）。
+1. Selector 硬编码 — `data-testid="assistant-input"` 等可能随 Comet 更新变化（Phase 4 解决）
+2. 无真实 Comet 集成测试 — 当前仅有 mock 测试（Phase 4 解决）
+3. 无请求队列 — 并发调用可能触发 Perplexity 速率限制（Phase 3 解决）
 
 ## 演进路线
 
