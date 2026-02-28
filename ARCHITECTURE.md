@@ -8,23 +8,24 @@
 ## 设计原则
 
 - 意图注入，非 UI 自动化 — 只下发"what"，让 Comet 决定"how"
-- 网络层监控优先于 DOM 轮询 — SSE/WebSocket 拦截获取实时状态
-- 最小化 UI 依赖 — 仅依赖输入框一个稳定元素
-- Playwright 标准 API 优先 — 避免 React 内部状态 hack
+- DOM 轮询为主 — 通过 Runtime.evaluate 轮询页面状态和结果
+- 最小化 UI 依赖 — 仅依赖 contenteditable 输入框一个稳定元素
+- 纯 JS 注入优先 — 通过 ClipboardEvent/KeyboardEvent 操作 Lexical 编辑器，不依赖 CDP Input（需浏览器窗口前台）
 
 ## 能力状态总览
 
 | 能力 | 状态 | 说明 |
 |------|------|------|
 | CDP 连接管理 | 已实现 | `src/cdp-client.ts`，含指数退避重连 |
-| 意图注入 | 已实现 | `src/intent-injector.ts`，3 级 fallback |
+| 意图注入 | 已实现 | `src/intent-injector.ts`，ClipboardEvent paste + KeyboardEvent Enter |
+| DOM 轮询 | 已实现 | `src/dom-poller.ts`，状态检测 + 结果提取 |
 | SSE 流拦截 | 已实现 | `src/stream-monitor.ts` |
 | WebSocket 监控 | 已实现 | `src/stream-monitor.ts`（Agent 动作解析） |
 | 结果提取 | 已实现 | `src/result-extractor.ts` |
-| Skill 编排 | 已实现 | `src/comet-skill.ts`，依赖注入支持 |
+| Skill 编排 | 已实现 | `src/comet-skill.ts`，页面状态管理 + 依赖注入 |
 | CLI 入口 | 已实现 | `src/index.ts`，JSON stdout 输出 |
 | OpenClaw Skill | 已实现 | `skills/comet-perplexity/SKILL.md` |
-| 单元测试 | 已实现 | 50 tests across 6 files |
+| 单元测试 | 已实现 | 62 tests across 7 files |
 
 ## 架构概览
 
@@ -59,10 +60,10 @@
 ## 数据流
 
 1. OpenClaw Agent 通过 `bash` 工具执行 `comet-claw search "query"`
-2. CLI 通过 Playwright `connectOverCDP` 连接 Comet（端口 9222）
-3. Intent Injector 使用 `page.fill()` + `page.press('Enter')` 注入查询
-4. Stream Monitor 通过 `page.route()` 拦截 SSE 流获取回答内容
-5. Stream Monitor 通过 `page.on('websocket')` 监控 Agent 执行进度
+2. CLI 通过 `chrome-remote-interface` CDP 连接 Comet（端口 9222）
+3. Skill 编排器先导航到首页确保干净输入状态
+4. Intent Injector 通过 ClipboardEvent paste 注入查询文本，KeyboardEvent 提交
+5. DOM Poller 通过 Runtime.evaluate 轮询页面状态（idle/working/completed）
 6. Result Extractor 从 DOM 提取结构化结果（文本 + 引用）
 7. CLI 将 JSON 结果输出到 stdout，返回给 OpenClaw
 
@@ -70,18 +71,20 @@
 
 | 模块 | 文件 | 职责 |
 |------|------|------|
-| CDP Client | `src/cdp-client.ts` | 连接管理、健康检查、重连 |
-| Intent Injector | `src/intent-injector.ts` | 任务注入（search/research/agent） |
+| CDP Client | `src/cdp-client.ts` | 连接管理、Target 选择、健康检查、重连 |
+| Intent Injector | `src/intent-injector.ts` | 任务注入（paste + Enter），模式切换 |
+| DOM Poller | `src/dom-poller.ts` | 状态轮询（idle/working/completed），结果提取 |
 | Stream Monitor | `src/stream-monitor.ts` | SSE 拦截 + WebSocket 监控 |
 | Result Extractor | `src/result-extractor.ts` | DOM 结果提取和结构化 |
-| Comet Skill | `src/comet-skill.ts` | 编排以上模块的统一入口 |
+| Comet Skill | `src/comet-skill.ts` | 编排入口：页面管理 → 注入 → 轮询 |
 | CLI | `src/index.ts` | 命令行解析 + JSON 输出 |
 
 ## 已知问题
 
-1. Selector 硬编码 — `data-testid="assistant-input"` 等可能随 Comet 更新变化（Phase 4 解决）
+1. Selector 硬编码 — 依赖 `[contenteditable="true"]`，可能随 Comet 更新变化
 2. 无真实 Comet 集成测试 — 当前仅有 mock 测试（Phase 4 解决）
 3. 无请求队列 — 并发调用可能触发 Perplexity 速率限制（Phase 3 解决）
+4. `execCommand("selectAll"/"delete")` 无法清除 Lexical 编辑器内容 — 依赖 `ensureCleanHomePage` 导航获取空白输入
 
 ## 演进路线
 

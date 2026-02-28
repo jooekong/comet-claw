@@ -2,26 +2,49 @@ import { describe, test, expect, mock } from "bun:test";
 import { executeTask } from "../src/comet-skill.js";
 import type { SkillDeps } from "../src/comet-skill.js";
 import type { CometConfig } from "../src/types.js";
+import { AGENT_TIMEOUT } from "../src/types.js";
 
 const testConfig: CometConfig = {
-  cdpEndpoint: "http://localhost:9222",
+  cdpEndpoint: "http://127.0.0.1:9222",
+  connectTimeoutMs: 30000,
   timeout: 100,
   sseRoutePatterns: ["**/api/answer**"],
 };
 
-function createMockDeps(overrides: Partial<SkillDeps> = {}): SkillDeps {
-  const mockPage = {} as any;
-
+function createMockClient() {
+  let evalCount = 0;
   return {
-    connect: mock(async () => ({ page: mockPage })),
+    Runtime: {
+      evaluate: mock(async (params: { expression: string }) => {
+        evalCount++;
+        if (params.expression.includes("contenteditable") || params.expression.includes("textarea")) {
+          return { result: { value: true } };
+        }
+        if (params.expression.includes("location.href")) {
+          return { result: { value: evalCount <= 3
+            ? "https://www.perplexity.ai/"
+            : "https://www.perplexity.ai/search/new-query-abc" } };
+        }
+        if (params.expression.includes("animate-spin")) {
+          return { result: { value: true } };
+        }
+        return { result: { value: "" } };
+      }),
+    },
+    Page: {
+      navigate: mock(async () => ({})),
+      loadEventFired: mock(async () => ({})),
+    },
+  } as any;
+}
+
+function createMockDeps(overrides: Partial<SkillDeps> = {}): SkillDeps {
+  const mockClient = createMockClient();
+  return {
+    connect: mock(async () => ({ client: mockClient })),
     injectIntent: mock(async () => {}),
-    monitorStream: mock(async () => ({
-      chunks: [],
-      actions: [],
-      fullText: "",
-    })),
-    extractResult: mock(async (_page, mode, startTime) => ({
-      answer: "DOM result",
+    pollForResult: mock(async (_client, mode, startTime) => ({
+      answer: "Polled result",
       citations: [],
       researchSteps: [],
       mode,
@@ -32,95 +55,77 @@ function createMockDeps(overrides: Partial<SkillDeps> = {}): SkillDeps {
 }
 
 describe("executeTask", () => {
-  test("uses stream result when fullText is available", async () => {
-    const deps = createMockDeps({
-      monitorStream: mock(async () => ({
-        chunks: [
-          { type: "answer_chunk" as const, text: "Stream answer", raw: {} },
-          { type: "task_complete" as const, raw: {} },
-        ],
-        actions: [],
-        fullText: "Stream answer",
-      })),
-    });
-
-    const result = await executeTask("test query", "search", testConfig, deps);
-
-    expect(result.answer).toBe("Stream answer");
-    expect(result.mode).toBe("search");
-    expect(deps.extractResult).not.toHaveBeenCalled();
-  });
-
-  test("falls back to DOM extraction when stream has no text", async () => {
+  test("returns polled result", async () => {
     const deps = createMockDeps();
-    const result = await executeTask(
-      "test query",
-      "deep_research",
-      testConfig,
-      deps
-    );
-
-    expect(result.answer).toBe("DOM result");
-    expect(result.mode).toBe("deep_research");
-    expect(deps.extractResult).toHaveBeenCalled();
+    const result = await executeTask("test", "search", testConfig, deps);
+    expect(result.answer).toBe("Polled result");
+    expect(result.mode).toBe("search");
   });
 
   test("passes correct mode to injectIntent", async () => {
     const deps = createMockDeps();
-    await executeTask("test query", "agent_task", testConfig, deps);
-
-    expect(deps.injectIntent).toHaveBeenCalledWith(
-      expect.anything(),
-      "test query",
-      "agent_task"
-    );
+    await executeTask("q", "agent_task", testConfig, deps);
+    expect(deps.injectIntent).toHaveBeenCalledWith(expect.anything(), "q", "agent_task");
   });
 
-  test("calls connect with config", async () => {
-    const deps = createMockDeps();
-    await executeTask("q", "search", testConfig, deps);
-
-    expect(deps.connect).toHaveBeenCalledWith(testConfig);
-  });
-
-  test("includes research steps from stream chunks", async () => {
+  test("calls pollForResult after injectIntent", async () => {
+    const callOrder: string[] = [];
     const deps = createMockDeps({
-      monitorStream: mock(async () => ({
-        chunks: [
-          {
-            type: "research_progress" as const,
-            step: 1,
-            totalSteps: 3,
-            raw: {},
-          },
-          {
-            type: "research_progress" as const,
-            step: 2,
-            totalSteps: 3,
-            raw: {},
-          },
-          { type: "answer_chunk" as const, text: "Done", raw: {} },
-          { type: "task_complete" as const, raw: {} },
-        ],
-        actions: [],
-        fullText: "Done",
-      })),
+      injectIntent: mock(async () => { callOrder.push("inject"); }),
+      pollForResult: mock(async (_c, mode, st) => {
+        callOrder.push("poll");
+        return { answer: "ok", citations: [], researchSteps: [], mode, durationMs: Date.now() - st };
+      }),
     });
-
-    const result = await executeTask("q", "deep_research", testConfig, deps);
-
-    expect(result.researchSteps).toEqual(["Step 1/3", "Step 2/3"]);
+    await executeTask("q", "search", testConfig, deps);
+    expect(callOrder[0]).toBe("inject");
+    expect(callOrder[1]).toBe("poll");
   });
 
   test("measures duration", async () => {
     const deps = createMockDeps({
-      monitorStream: mock(async () => {
+      pollForResult: mock(async (_c, mode, st) => {
         await new Promise((r) => setTimeout(r, 30));
-        return { chunks: [], actions: [], fullText: "fast" };
+        return { answer: "ok", citations: [], researchSteps: [], mode, durationMs: Date.now() - st };
       }),
     });
-
     const result = await executeTask("q", "search", testConfig, deps);
     expect(result.durationMs).toBeGreaterThanOrEqual(20);
+  });
+
+  test("uses AGENT_TIMEOUT for agent_task mode", async () => {
+    let receivedTimeout = 0;
+    const deps = createMockDeps({
+      pollForResult: mock(async (_c, mode, st, timeoutMs) => {
+        receivedTimeout = timeoutMs;
+        return { answer: "ok", citations: [], researchSteps: [], mode, durationMs: Date.now() - st };
+      }),
+    });
+    await executeTask("browse v2ex", "agent_task", testConfig, deps);
+    expect(receivedTimeout).toBe(AGENT_TIMEOUT);
+  });
+
+  test("uses config.timeout for search mode", async () => {
+    let receivedTimeout = 0;
+    const deps = createMockDeps({
+      pollForResult: mock(async (_c, mode, st, timeoutMs) => {
+        receivedTimeout = timeoutMs;
+        return { answer: "ok", citations: [], researchSteps: [], mode, durationMs: Date.now() - st };
+      }),
+    });
+    await executeTask("hello", "search", testConfig, deps);
+    expect(receivedTimeout).toBe(testConfig.timeout);
+  });
+
+  test("passes warmUpMs in pollOpts for agent_task", async () => {
+    let receivedOpts: any = {};
+    const deps = createMockDeps({
+      pollForResult: mock(async (_c, mode, st, _t, opts) => {
+        receivedOpts = opts;
+        return { answer: "ok", citations: [], researchSteps: [], mode, durationMs: Date.now() - st };
+      }),
+    });
+    await executeTask("browse", "agent_task", testConfig, deps);
+    expect(receivedOpts.warmUpMs).toBe(30_000);
   });
 });

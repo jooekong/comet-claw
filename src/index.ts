@@ -8,8 +8,13 @@ function log(msg: string): void {
   process.stderr.write(`[comet-claw] ${msg}\n`);
 }
 
+function normalizeCommand(raw: string | undefined): string {
+  return (raw ?? "").replace(/^-+/, "").toLowerCase();
+}
+
 export function parseArgs(args: string[]): CLICommand {
-  const [name, ...rest] = args;
+  const [rawName, ...rest] = args;
+  const name = normalizeCommand(rawName);
   const query = rest.join(" ");
 
   switch (name) {
@@ -24,6 +29,9 @@ export function parseArgs(args: string[]): CLICommand {
     case "connect":
       return { name: "connect" };
     default:
+      if (!rawName) {
+        return { name: "search", query: "" };
+      }
       return { name: "search", query: args.join(" ") };
   }
 }
@@ -74,6 +82,9 @@ async function main(): Promise<void> {
     log(`Error: ${error}`);
     process.stdout.write(JSON.stringify({ error }) + "\n");
     process.exit(1);
+  } finally {
+    const { disconnect } = await import("./cdp-client.js");
+    await disconnect();
   }
 }
 

@@ -2,6 +2,18 @@ import { describe, test, expect } from "bun:test";
 import { parseArgs } from "../src/index.js";
 
 describe("parseArgs", () => {
+  test("parses -search flag form", () => {
+    const cmd = parseArgs(["-search", "hi"]);
+    expect(cmd.name).toBe("search");
+    expect(cmd.query).toBe("hi");
+  });
+
+  test("parses --research flag form", () => {
+    const cmd = parseArgs(["--research", "quantum"]);
+    expect(cmd.name).toBe("research");
+    expect(cmd.query).toBe("quantum");
+  });
+
   test("parses search command", () => {
     const cmd = parseArgs(["search", "AI trends"]);
     expect(cmd.name).toBe("search");

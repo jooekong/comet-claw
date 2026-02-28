@@ -1,5 +1,4 @@
-import type { Page, Route, WebSocket } from "playwright-core";
-import type { StreamChunk, AgentAction, CometConfig } from "./types.js";
+import type { CDPClient, StreamChunk, AgentAction, CometConfig } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 
 export interface MonitorResult {
@@ -9,7 +8,7 @@ export interface MonitorResult {
 }
 
 export async function monitorStream(
-  page: Page,
+  client: CDPClient,
   config: CometConfig = DEFAULT_CONFIG
 ): Promise<MonitorResult> {
   const chunks: StreamChunk[] = [];
@@ -21,60 +20,80 @@ export async function monitorStream(
     resolve = res;
   });
 
+  const buildResult = (): MonitorResult => ({
+    chunks,
+    actions,
+    fullText: chunks
+      .filter((c) => c.type === "answer_chunk" && c.text)
+      .map((c) => c.text)
+      .join(""),
+  });
+
   const complete = () => {
     clearTimeout(timeoutId);
-    resolve({
-      chunks,
-      actions,
-      fullText: chunks
-        .filter((c) => c.type === "answer_chunk" && c.text)
-        .map((c) => c.text)
-        .join(""),
-    });
+    cleanup();
+    resolve(buildResult());
   };
 
   timeoutId = setTimeout(complete, config.timeout);
 
-  const handleSSERoute = async (route: Route) => {
-    const response = await route.fetch();
-    const body = await response.text();
-
-    for (const line of body.split("\n")) {
-      if (!line.startsWith("data:")) continue;
+  const ingestChunkPayload = (payload: string) => {
+    for (const rawLine of payload.split("\n")) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const jsonText = line.startsWith("data:") ? line.slice(5).trim() : line;
       try {
-        const data = JSON.parse(line.slice(5)) as Record<string, unknown>;
-        const chunk = parseChunk(data);
+        const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+        const chunk = parseChunk(parsed);
         chunks.push(chunk);
-
-        if (chunk.type === "task_complete") {
-          complete();
-        }
+        if (chunk.type === "task_complete") complete();
       } catch {
-        // non-JSON SSE data, skip
+        // non-JSON line
       }
     }
-
-    await route.fulfill({ response });
   };
 
-  for (const pattern of config.sseRoutePatterns) {
-    await page.route(pattern, handleSSERoute);
-  }
+  const onEventSourceMessage = (params: {
+    requestId: string;
+    timestamp: number;
+    eventName: string;
+    eventId: string;
+    data: string;
+  }) => {
+    if (!params.data) return;
+    ingestChunkPayload(params.data);
+  };
 
-  page.on("websocket", (ws: WebSocket) => {
-    ws.on("framereceived", (data: { payload: string | Buffer }) => {
-      try {
-        const msg = JSON.parse(String(data.payload)) as Record<
-          string,
-          unknown
-        >;
-        const action = parseAction(msg);
-        if (action) actions.push(action);
-      } catch {
-        // binary or non-JSON frame, skip
-      }
-    });
-  });
+  const onWebSocketFrame = (params: {
+    requestId: string;
+    timestamp: number;
+    response: { opcode: number; mask: boolean; payloadData: string };
+  }) => {
+    try {
+      const msg = JSON.parse(params.response.payloadData) as Record<
+        string,
+        unknown
+      >;
+      const action = parseAction(msg);
+      if (action) actions.push(action);
+    } catch {
+      // binary or non-JSON
+    }
+  };
+
+  client.on("Network.eventSourceMessageReceived" as any, onEventSourceMessage);
+  client.on("Network.webSocketFrameReceived" as any, onWebSocketFrame);
+
+  const cleanup = () => {
+    try {
+      (client as any).off?.("Network.eventSourceMessageReceived", onEventSourceMessage);
+      (client as any).off?.("Network.webSocketFrameReceived", onWebSocketFrame);
+      (client as any).removeListener?.("Network.eventSourceMessageReceived", onEventSourceMessage);
+      (client as any).removeListener?.("Network.webSocketFrameReceived", onWebSocketFrame);
+    } catch {
+      // best-effort cleanup
+    }
+  };
 
   return promise;
 }
