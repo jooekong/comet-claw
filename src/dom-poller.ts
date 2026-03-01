@@ -10,11 +10,14 @@ export interface PollStatus {
 }
 
 const POLL_SCRIPT = `(() => {
-  const root = document.querySelector("main") || document.body;
+  const cached = window.__cometRoot;
+  const root = (cached && document.contains(cached))
+    ? cached
+    : (window.__cometRoot = document.querySelector("main") || document.body);
   const body = root.innerText || "";
 
   let hasStopButton = false;
-  for (const btn of document.querySelectorAll("button")) {
+  for (const btn of root.querySelectorAll("button")) {
     const rect = btn.querySelector("rect");
     const label = (btn.getAttribute("aria-label") || "").toLowerCase();
     if ((rect || label.includes("stop")) && btn.offsetParent !== null && !btn.disabled) {

@@ -164,7 +164,13 @@ async function connectToTarget(
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const client = await CDP({ host, port, target: targetId });
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`CDP connection timed out after ${config.connectTimeoutMs}ms`)),
+          config.connectTimeoutMs
+        )
+      );
+      const client = await Promise.race([CDP({ host, port, target: targetId }), timeout]);
       await Promise.all([
         client.Page.enable(),
         client.Runtime.enable(),
