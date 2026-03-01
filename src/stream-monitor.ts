@@ -7,9 +7,17 @@ export interface MonitorResult {
   fullText: string;
 }
 
+export interface StreamMonitorOpts {
+  /** Called immediately for each answer_chunk and research_progress chunk received. */
+  onChunk?: (chunk: StreamChunk) => void;
+  /** When aborted, the monitor resolves immediately with whatever was collected. */
+  signal?: AbortSignal;
+}
+
 export async function monitorStream(
   client: CDPClient,
-  config: CometConfig = DEFAULT_CONFIG
+  config: CometConfig = DEFAULT_CONFIG,
+  opts?: StreamMonitorOpts
 ): Promise<MonitorResult> {
   const chunks: StreamChunk[] = [];
   const actions: AgentAction[] = [];
@@ -29,9 +37,12 @@ export async function monitorStream(
       .join(""),
   });
 
+  // cleanup is declared here so complete() can reference it via closure
+  let cleanup: () => void;
+
   const complete = () => {
     clearTimeout(timeoutId);
-    cleanup();
+    cleanup?.();
     resolve(buildResult());
   };
 
@@ -46,6 +57,9 @@ export async function monitorStream(
         const parsed = JSON.parse(jsonText) as Record<string, unknown>;
         const chunk = parseChunk(parsed);
         chunks.push(chunk);
+        if (chunk.type === "answer_chunk" || chunk.type === "research_progress") {
+          opts?.onChunk?.(chunk);
+        }
         if (chunk.type === "task_complete") complete();
       } catch {
         // non-JSON line
@@ -84,7 +98,7 @@ export async function monitorStream(
   client.on("Network.eventSourceMessageReceived" as any, onEventSourceMessage);
   client.on("Network.webSocketFrameReceived" as any, onWebSocketFrame);
 
-  const cleanup = () => {
+  cleanup = () => {
     try {
       (client as any).off?.("Network.eventSourceMessageReceived", onEventSourceMessage);
       (client as any).off?.("Network.webSocketFrameReceived", onWebSocketFrame);
@@ -94,6 +108,14 @@ export async function monitorStream(
       // best-effort cleanup
     }
   };
+
+  if (opts?.signal) {
+    if (opts.signal.aborted) {
+      complete();
+    } else {
+      opts.signal.addEventListener("abort", complete, { once: true });
+    }
+  }
 
   return promise;
 }
