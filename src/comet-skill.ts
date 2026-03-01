@@ -1,8 +1,10 @@
-import type { CDPClient, TaskMode, TaskResult, CometConfig } from "./types.js";
+import type { CDPClient, TaskMode, TaskResult, CometConfig, StreamChunk } from "./types.js";
 import { DEFAULT_CONFIG, AGENT_TIMEOUT } from "./types.js";
 import { connect } from "./cdp-client.js";
 import { injectIntent } from "./intent-injector.js";
 import { pollForResult } from "./dom-poller.js";
+import { monitorStream } from "./stream-monitor.js";
+import type { MonitorResult, StreamMonitorOpts } from "./stream-monitor.js";
 
 export interface PollOpts {
   intervalMs?: number;
@@ -21,12 +23,18 @@ export interface SkillDeps {
     timeoutMs: number,
     opts?: PollOpts
   ) => Promise<TaskResult>;
+  monitorStream?: (
+    client: CDPClient,
+    config: CometConfig,
+    opts?: StreamMonitorOpts
+  ) => Promise<MonitorResult>;
 }
 
 const defaultDeps: SkillDeps = {
   connect,
   injectIntent,
   pollForResult,
+  monitorStream,
 };
 
 export async function executeTask(
@@ -44,12 +52,21 @@ export async function executeTask(
   await deps.injectIntent(client, query, mode);
   await waitForPageTransition(client, urlBefore);
 
+  const ac = new AbortController();
+  const monitorFn = deps.monitorStream ?? monitorStream;
+  void monitorFn(client, config, {
+    signal: ac.signal,
+    onChunk: streamChunkToStderr,
+  });
+
   const timeoutMs = mode === "agent_task" ? Math.max(config.timeout, AGENT_TIMEOUT) : config.timeout;
   const pollOpts: PollOpts =
     mode === "agent_task"
       ? { warmUpMs: 30_000, reconnectConfig: config }
       : { reconnectConfig: config };
-  return deps.pollForResult(client, mode, startTime, timeoutMs, pollOpts);
+  const result = await deps.pollForResult(client, mode, startTime, timeoutMs, pollOpts);
+  ac.abort();
+  return result;
 }
 
 async function getPageUrl(client: CDPClient): Promise<string> {
@@ -109,4 +126,14 @@ async function waitForPageTransition(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+export function streamChunkToStderr(chunk: StreamChunk): void {
+  if (chunk.type === "answer_chunk" && chunk.text) {
+    process.stderr.write(chunk.text);
+  } else if (chunk.type === "research_progress" && chunk.step !== undefined) {
+    process.stderr.write(
+      `\n[comet-claw] research step ${chunk.step}/${chunk.totalSteps ?? "?"}\n`
+    );
+  }
 }

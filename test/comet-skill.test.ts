@@ -1,5 +1,5 @@
-import { describe, test, expect, mock } from "bun:test";
-import { executeTask } from "../src/comet-skill.js";
+import { describe, test, expect, mock, spyOn } from "bun:test";
+import { executeTask, streamChunkToStderr } from "../src/comet-skill.js";
 import type { SkillDeps } from "../src/comet-skill.js";
 import type { CometConfig } from "../src/types.js";
 import { AGENT_TIMEOUT } from "../src/types.js";
@@ -35,6 +35,8 @@ function createMockClient() {
       navigate: mock(async () => ({})),
       loadEventFired: mock(async () => ({})),
     },
+    on: mock(() => {}),
+    off: mock(() => {}),
   } as any;
 }
 
@@ -53,6 +55,40 @@ function createMockDeps(overrides: Partial<SkillDeps> = {}): SkillDeps {
     ...overrides,
   };
 }
+
+describe("streamChunkToStderr", () => {
+  test("writes answer_chunk text to stderr", () => {
+    const writes: string[] = [];
+    const spy = spyOn(process.stderr, "write").mockImplementation((s: any) => { writes.push(s); return true; });
+    streamChunkToStderr({ type: "answer_chunk", text: "hello", raw: {} });
+    expect(writes).toContain("hello");
+    spy.mockRestore();
+  });
+
+  test("writes research_progress to stderr", () => {
+    const writes: string[] = [];
+    const spy = spyOn(process.stderr, "write").mockImplementation((s: any) => { writes.push(s); return true; });
+    streamChunkToStderr({ type: "research_progress", step: 3, totalSteps: 10, raw: {} });
+    expect(writes.join("")).toContain("step 3/10");
+    spy.mockRestore();
+  });
+
+  test("ignores unknown chunk types", () => {
+    const writes: string[] = [];
+    const spy = spyOn(process.stderr, "write").mockImplementation((s: any) => { writes.push(s); return true; });
+    streamChunkToStderr({ type: "unknown", raw: {} });
+    expect(writes).toEqual([]);
+    spy.mockRestore();
+  });
+
+  test("ignores answer_chunk without text", () => {
+    const writes: string[] = [];
+    const spy = spyOn(process.stderr, "write").mockImplementation((s: any) => { writes.push(s); return true; });
+    streamChunkToStderr({ type: "answer_chunk", raw: {} });
+    expect(writes).toEqual([]);
+    spy.mockRestore();
+  });
+});
 
 describe("executeTask", () => {
   test("returns polled result", async () => {
