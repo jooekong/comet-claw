@@ -95,15 +95,13 @@ export async function monitorStream(
     }
   };
 
-  client.on("Network.eventSourceMessageReceived" as any, onEventSourceMessage);
-  client.on("Network.webSocketFrameReceived" as any, onWebSocketFrame);
+  const unsubscribeEventSource = client.Network.eventSourceMessageReceived(onEventSourceMessage);
+  const unsubscribeWebSocket = client.Network.webSocketFrameReceived(onWebSocketFrame);
 
   cleanup = () => {
     try {
-      (client as any).off?.("Network.eventSourceMessageReceived", onEventSourceMessage);
-      (client as any).off?.("Network.webSocketFrameReceived", onWebSocketFrame);
-      (client as any).removeListener?.("Network.eventSourceMessageReceived", onEventSourceMessage);
-      (client as any).removeListener?.("Network.webSocketFrameReceived", onWebSocketFrame);
+      unsubscribeEventSource();
+      unsubscribeWebSocket();
     } catch {
       // best-effort cleanup
     }

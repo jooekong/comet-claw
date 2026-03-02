@@ -5,6 +5,7 @@ import { injectIntent } from "./intent-injector.js";
 import { pollForResult } from "./dom-poller.js";
 import { monitorStream } from "./stream-monitor.js";
 import type { MonitorResult, StreamMonitorOpts } from "./stream-monitor.js";
+import { sleep } from "./utils.js";
 
 export interface PollOpts {
   intervalMs?: number;
@@ -122,10 +123,8 @@ async function waitForPageTransition(
 
     await sleep(300);
   }
-}
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+  process.stderr.write("[comet-claw] warning: page transition timeout after submit; continue polling on current page\n");
 }
 
 export function streamChunkToStderr(chunk: StreamChunk): void {

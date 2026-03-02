@@ -52,6 +52,7 @@ function createMockDeps(overrides: Partial<SkillDeps> = {}): SkillDeps {
       mode,
       durationMs: Date.now() - startTime,
     })),
+    monitorStream: mock(async () => ({ chunks: [], actions: [], fullText: "" })),
     ...overrides,
   };
 }
@@ -163,5 +164,32 @@ describe("executeTask", () => {
     });
     await executeTask("browse", "agent_task", testConfig, deps);
     expect(receivedOpts.warmUpMs).toBe(30_000);
+  });
+
+  test("throws when home page input is not ready within timeout", async () => {
+    let now = 0;
+    const nowSpy = spyOn(Date, "now").mockImplementation(() => {
+      now += 11_000;
+      return now;
+    });
+    const client = {
+      Runtime: {
+        evaluate: mock(async () => ({ result: { value: false } })),
+      },
+      Page: {
+        navigate: mock(async () => ({})),
+        loadEventFired: mock(async () => ({})),
+      },
+    } as any;
+    const deps = createMockDeps({
+      connect: mock(async () => ({ client })),
+    });
+
+    try {
+      await expect(executeTask("q", "search", testConfig, deps))
+        .rejects.toThrow("Comet home page input was not ready/clean within timeout");
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });

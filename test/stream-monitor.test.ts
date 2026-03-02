@@ -64,9 +64,41 @@ const BASE_CONFIG: CometConfig = {
 };
 
 describe("monitorStream", () => {
+  function createMockMonitorClient() {
+    let sseHandler: ((params: any) => void) | undefined;
+    let wsHandler: ((params: any) => void) | undefined;
+    const unsubscribeEventSource = mock(() => {});
+    const unsubscribeWebSocket = mock(() => {});
+
+    const client = {
+      Network: {
+        eventSourceMessageReceived: mock((handler: (params: any) => void) => {
+          sseHandler = handler;
+          return unsubscribeEventSource;
+        }),
+        webSocketFrameReceived: mock((handler: (params: any) => void) => {
+          wsHandler = handler;
+          return unsubscribeWebSocket;
+        }),
+      },
+    } as any;
+
+    return {
+      client,
+      emitSSE(params: any) {
+        sseHandler?.(params);
+      },
+      emitWS(params: any) {
+        wsHandler?.(params);
+      },
+      unsubscribeEventSource,
+      unsubscribeWebSocket,
+    };
+  }
+
   test("resolves on timeout with empty result", async () => {
-    const mockClient = { on: mock(() => {}), off: mock(() => {}) } as any;
-    const result = await monitorStream(mockClient, BASE_CONFIG);
+    const { client } = createMockMonitorClient();
+    const result = await monitorStream(client, BASE_CONFIG);
     expect(result.chunks).toEqual([]);
     expect(result.actions).toEqual([]);
     expect(result.fullText).toBe("");
@@ -74,29 +106,22 @@ describe("monitorStream", () => {
 
   test("calls onChunk for answer_chunk events", async () => {
     const received: StreamChunk[] = [];
-    let sseHandler: ((params: object) => void) | undefined;
-
-    const mockClient = {
-      on: mock((event: string, handler: (params: object) => void) => {
-        if (event === "Network.eventSourceMessageReceived") sseHandler = handler;
-      }),
-      off: mock(() => {}),
-    } as any;
+    const { client, emitSSE } = createMockMonitorClient();
 
     const config = { ...BASE_CONFIG, timeout: 500 };
-    const p = monitorStream(mockClient, config, {
+    const p = monitorStream(client, config, {
       onChunk: (chunk) => received.push(chunk),
     });
 
     // simulate SSE frames
     setTimeout(() => {
-      sseHandler?.({ requestId: "r1", timestamp: 0, eventName: "message", eventId: "1",
+      emitSSE({ requestId: "r1", timestamp: 0, eventName: "message", eventId: "1",
         data: 'data: {"type":"answer_chunk","text":"Hello"}' });
     }, 10);
     setTimeout(() => {
-      sseHandler?.({ requestId: "r1", timestamp: 0, eventName: "message", eventId: "2",
+      emitSSE({ requestId: "r1", timestamp: 0, eventName: "message", eventId: "2",
         data: 'data: {"type":"answer_chunk","text":" world"}' });
-      sseHandler?.({ requestId: "r1", timestamp: 0, eventName: "message", eventId: "3",
+      emitSSE({ requestId: "r1", timestamp: 0, eventName: "message", eventId: "3",
         data: 'data: {"type":"task_complete"}' });
     }, 20);
 
@@ -110,24 +135,17 @@ describe("monitorStream", () => {
 
   test("calls onChunk for research_progress events", async () => {
     const received: StreamChunk[] = [];
-    let sseHandler: ((params: object) => void) | undefined;
-
-    const mockClient = {
-      on: mock((event: string, handler: (params: object) => void) => {
-        if (event === "Network.eventSourceMessageReceived") sseHandler = handler;
-      }),
-      off: mock(() => {}),
-    } as any;
+    const { client, emitSSE } = createMockMonitorClient();
 
     const config = { ...BASE_CONFIG, timeout: 500 };
-    const p = monitorStream(mockClient, config, {
+    const p = monitorStream(client, config, {
       onChunk: (chunk) => received.push(chunk),
     });
 
     setTimeout(() => {
-      sseHandler?.({ requestId: "r1", timestamp: 0, eventName: "message", eventId: "1",
+      emitSSE({ requestId: "r1", timestamp: 0, eventName: "message", eventId: "1",
         data: 'data: {"type":"research_progress","step":2,"total_steps":10}' });
-      sseHandler?.({ requestId: "r1", timestamp: 0, eventName: "message", eventId: "2",
+      emitSSE({ requestId: "r1", timestamp: 0, eventName: "message", eventId: "2",
         data: 'data: {"type":"task_complete"}' });
     }, 10);
 
@@ -140,21 +158,21 @@ describe("monitorStream", () => {
   test("signal already aborted resolves immediately", async () => {
     const ac = new AbortController();
     ac.abort();
-    const mockClient = { on: mock(() => {}), off: mock(() => {}) } as any;
+    const { client } = createMockMonitorClient();
     const config = { ...BASE_CONFIG, timeout: 10_000 };
 
     const start = Date.now();
-    const result = await monitorStream(mockClient, config, { signal: ac.signal });
+    const result = await monitorStream(client, config, { signal: ac.signal });
     expect(Date.now() - start).toBeLessThan(100);
     expect(result.chunks).toEqual([]);
   });
 
   test("signal abort after start resolves early", async () => {
     const ac = new AbortController();
-    const mockClient = { on: mock(() => {}), off: mock(() => {}) } as any;
+    const { client } = createMockMonitorClient();
     const config = { ...BASE_CONFIG, timeout: 10_000 };
 
-    const p = monitorStream(mockClient, config, { signal: ac.signal });
+    const p = monitorStream(client, config, { signal: ac.signal });
     setTimeout(() => ac.abort(), 20);
 
     const start = Date.now();
@@ -164,19 +182,13 @@ describe("monitorStream", () => {
   });
 
   test("task_complete event resolves without waiting for timeout", async () => {
-    let sseHandler: ((params: object) => void) | undefined;
-    const mockClient = {
-      on: mock((event: string, handler: (params: object) => void) => {
-        if (event === "Network.eventSourceMessageReceived") sseHandler = handler;
-      }),
-      off: mock(() => {}),
-    } as any;
+    const { client, emitSSE } = createMockMonitorClient();
 
     const config = { ...BASE_CONFIG, timeout: 10_000 };
-    const p = monitorStream(mockClient, config);
+    const p = monitorStream(client, config);
 
     setTimeout(() => {
-      sseHandler?.({ requestId: "r1", timestamp: 0, eventName: "message", eventId: "1",
+      emitSSE({ requestId: "r1", timestamp: 0, eventName: "message", eventId: "1",
         data: 'data: {"type":"task_complete"}' });
     }, 10);
 

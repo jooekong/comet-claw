@@ -1,29 +1,74 @@
 import CDP from "chrome-remote-interface";
 import type { CDPClient, CometConnection, CometConfig, CDPTarget } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
+import { sleep } from "./utils.js";
 
-const PERPLEXITY_HOME = "https://www.perplexity.ai/";
+export class CometClient {
+  private cachedConnection: CometConnection | null = null;
 
-let cachedConnection: CometConnection | null = null;
+  getCachedConnection(): CometConnection | null {
+    return this.cachedConnection;
+  }
+
+  clearCachedConnection(): void {
+    this.cachedConnection = null;
+  }
+
+  async connect(config: CometConfig = DEFAULT_CONFIG): Promise<CometConnection> {
+    if (this.cachedConnection && (await this.isConnectionAlive(this.cachedConnection))) {
+      const currentUrl = await getPageUrl(this.cachedConnection.client);
+      if (isPerplexityUrl(currentUrl)) {
+        return this.cachedConnection;
+      }
+      await this.cachedConnection.client.close().catch(() => {});
+      this.cachedConnection = null;
+    }
+
+    const targets = await listTargets(config);
+    const perplexityTarget = findPerplexityTarget(targets);
+    const target = perplexityTarget ?? findAnyPageTarget(targets);
+    const client = await connectToTarget(config, target.id);
+
+    this.cachedConnection = { client, targetId: target.id };
+    return this.cachedConnection;
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.cachedConnection) {
+      try {
+        await this.cachedConnection.client.close();
+      } catch {
+        // already closed
+      }
+      this.cachedConnection = null;
+    }
+  }
+
+  private async isConnectionAlive(conn: CometConnection): Promise<boolean> {
+    try {
+      const { result } = await conn.client.Runtime.evaluate({
+        expression: "1+1",
+        returnByValue: true,
+      });
+      return result.value === 2;
+    } catch {
+      return false;
+    }
+  }
+}
+
+const defaultCometClient = new CometClient();
+
+export function createCometClient(): CometClient {
+  return new CometClient();
+}
 
 export function getCachedConnection(): CometConnection | null {
-  return cachedConnection;
+  return defaultCometClient.getCachedConnection();
 }
 
 export function clearCachedConnection(): void {
-  cachedConnection = null;
-}
-
-async function isConnectionAlive(conn: CometConnection): Promise<boolean> {
-  try {
-    const { result } = await conn.client.Runtime.evaluate({
-      expression: "1+1",
-      returnByValue: true,
-    });
-    return result.value === 2;
-  } catch {
-    return false;
-  }
+  defaultCometClient.clearCachedConnection();
 }
 
 export async function listTargets(
@@ -68,34 +113,7 @@ function isPerplexityUrl(url: string): boolean {
 export async function connect(
   config: CometConfig = DEFAULT_CONFIG
 ): Promise<CometConnection> {
-  if (cachedConnection && (await isConnectionAlive(cachedConnection))) {
-    const { result } = await cachedConnection.client.Runtime.evaluate({
-      expression: "window.location.href",
-      returnByValue: true,
-    });
-    if (isPerplexityUrl(result.value as string)) {
-      return cachedConnection;
-    }
-    await cachedConnection.client.close().catch(() => {});
-    cachedConnection = null;
-  }
-
-  const targets = await listTargets(config);
-  const perplexityTarget = findPerplexityTarget(targets);
-  const target = perplexityTarget ?? findAnyPageTarget(targets);
-
-  const client = await connectToTarget(config, target.id);
-
-  const currentUrl = await getPageUrl(client);
-  const isSearchReady =
-    currentUrl === PERPLEXITY_HOME ||
-    currentUrl.startsWith("https://www.perplexity.ai/search");
-  if (!isSearchReady) {
-    await navigateToPerplexity(client);
-  }
-
-  cachedConnection = { client, targetId: target.id };
-  return cachedConnection;
+  return defaultCometClient.connect(config);
 }
 
 async function getPageUrl(client: CDPClient): Promise<string> {
@@ -107,30 +125,6 @@ async function getPageUrl(client: CDPClient): Promise<string> {
     return result.value as string;
   } catch {
     return "";
-  }
-}
-
-async function navigateToPerplexity(client: CDPClient): Promise<void> {
-  await client.Page.navigate({ url: PERPLEXITY_HOME });
-  await waitForInputReady(client, 20_000);
-}
-
-async function waitForInputReady(
-  client: CDPClient,
-  timeoutMs: number
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const { result } = await client.Runtime.evaluate({
-        expression: `!!document.querySelector('[contenteditable="true"]') || !!document.querySelector('textarea')`,
-        returnByValue: true,
-      });
-      if (result.value === true) return;
-    } catch {
-      // page still loading
-    }
-    await sleep(500);
   }
 }
 
@@ -151,10 +145,6 @@ export function parseEndpoint(endpoint: string): { host: string; port: number } 
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function connectToTarget(
   config: CometConfig,
   targetId: string
@@ -163,14 +153,16 @@ async function connectToTarget(
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(
+      const timeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
           () => reject(new Error(`CDP connection timed out after ${config.connectTimeoutMs}ms`)),
           config.connectTimeoutMs
-        )
-      );
+        );
+      });
       const client = await Promise.race([CDP({ host, port, target: targetId }), timeout]);
+      if (timeoutId) clearTimeout(timeoutId);
       await Promise.all([
         client.Page.enable(),
         client.Runtime.enable(),
@@ -179,6 +171,7 @@ async function connectToTarget(
       ]);
       return client;
     } catch (e) {
+      if (timeoutId) clearTimeout(timeoutId);
       lastError = e instanceof Error ? e : new Error(String(e));
       if (attempt < MAX_RETRIES - 1) {
         await sleep(BASE_DELAY_MS * 2 ** attempt);
@@ -192,14 +185,7 @@ async function connectToTarget(
 }
 
 export async function disconnect(): Promise<void> {
-  if (cachedConnection) {
-    try {
-      await cachedConnection.client.close();
-    } catch {
-      // already closed
-    }
-    cachedConnection = null;
-  }
+  await defaultCometClient.disconnect();
 }
 
 export interface HealthStatus {

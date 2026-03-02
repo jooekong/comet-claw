@@ -5,8 +5,10 @@ import {
   parseTargets,
   normalizeLoopbackEndpoint,
   parseEndpoint,
+  createCometClient,
 } from "../src/cdp-client.js";
 import type { CDPTarget } from "../src/types.js";
+import type { CometConfig } from "../src/types.js";
 
 function target(url: string, type = "page"): CDPTarget {
   return { id: url, type, title: "", url };
@@ -131,4 +133,35 @@ describe("parseEndpoint", () => {
       port: 9222,
     });
   });
+});
+
+describe("CometClient.connect", () => {
+  test("retries and fails after max attempts when target is unreachable", async () => {
+    const oldFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify([
+          {
+            id: "test-target",
+            type: "page",
+            title: "Perplexity",
+            url: "https://www.perplexity.ai/",
+          },
+        ])
+      ) as any;
+
+    const config: CometConfig = {
+      cdpEndpoint: "http://127.0.0.1:1",
+      connectTimeoutMs: 50,
+      timeout: 1000,
+      sseRoutePatterns: ["**/api/answer**"],
+    };
+    const cometClient = createCometClient();
+
+    try {
+      await expect(cometClient.connect(config)).rejects.toThrow("Failed to connect after 3 attempts");
+    } finally {
+      globalThis.fetch = oldFetch;
+    }
+  }, 15_000);
 });

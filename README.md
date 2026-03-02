@@ -17,7 +17,7 @@ Instead of reimplementing browser automation, it lets Comet's AI handle the "how
 - [Perplexity Comet Browser](https://www.perplexity.ai/comet/) installed
 - Perplexity Pro or Max subscription (for Deep Research)
 - Active login session in Comet
-- [Bun](https://bun.sh/) or Node.js >= 22
+- [Bun](https://bun.sh/)（当前 CLI 为 Bun-only，`bin` 直接指向 TypeScript 源码）
 
 ## Install
 
