@@ -6,6 +6,10 @@ import { pollForResult } from "./dom-poller.js";
 import { monitorStream } from "./stream-monitor.js";
 import type { MonitorResult, StreamMonitorOpts } from "./stream-monitor.js";
 import { sleep } from "./utils.js";
+import { RequestQueue } from "./request-queue.js";
+import { logger } from "./logger.js";
+
+const taskQueue = new RequestQueue();
 
 export interface PollOpts {
   intervalMs?: number;
@@ -42,7 +46,17 @@ export async function executeTask(
   query: string,
   mode: TaskMode,
   config: CometConfig = DEFAULT_CONFIG,
-  deps: SkillDeps = defaultDeps
+  deps: SkillDeps = defaultDeps,
+  queue: RequestQueue = taskQueue
+): Promise<TaskResult> {
+  return queue.enqueue(() => runTask(query, mode, config, deps));
+}
+
+async function runTask(
+  query: string,
+  mode: TaskMode,
+  config: CometConfig,
+  deps: SkillDeps
 ): Promise<TaskResult> {
   const startTime = Date.now();
   const { client } = await deps.connect(config);
@@ -124,7 +138,7 @@ async function waitForPageTransition(
     await sleep(300);
   }
 
-  process.stderr.write("[comet-claw] warning: page transition timeout after submit; continue polling on current page\n");
+  logger.warn("page transition timeout after submit; continue polling on current page");
 }
 
 export function streamChunkToStderr(chunk: StreamChunk): void {

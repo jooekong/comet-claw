@@ -1,8 +1,9 @@
 import type { CDPClient, TaskResult, TaskMode, Citation, CometConfig } from "./types.js";
-import { connect } from "./cdp-client.js";
+import { listTargets, findSidecarSearchTarget, createCometClient } from "./cdp-client.js";
 import { DEFAULT_CONFIG } from "./types.js";
 import { POLL_SCRIPT } from "./poll-script.js";
 import { sleep } from "./utils.js";
+import { logger } from "./logger.js";
 
 export interface PollStatus {
   status: "idle" | "working" | "completed";
@@ -27,45 +28,51 @@ export async function pollForResult(
     maxIdlePolls?: number;
     warmUpMs?: number;
     reconnectConfig?: CometConfig;
-    reconnect?: (config: CometConfig) => Promise<CDPClient | null>;
   } = {}
 ): Promise<TaskResult> {
   const intervalMs = opts.intervalMs ?? POLL_DEFAULTS.intervalMs;
   const maxIdlePolls = opts.maxIdlePolls ?? POLL_DEFAULTS.maxIdlePolls;
   const warmUpMs = opts.warmUpMs ?? POLL_DEFAULTS.warmUpMs;
   const reconnectConfig = opts.reconnectConfig ?? DEFAULT_CONFIG;
-  const reconnect = opts.reconnect ?? tryReconnect;
   const deadline = startTime + timeoutMs;
   const warmUpDeadline = startTime + warmUpMs;
   let idleCount = 0;
   let sawWorking = false;
 
   let activeClient = client;
-  let consecutiveFailures = 0;
-  let reconnected = false;
+  let consecutiveTimeouts = 0;
+  let switchedToSidecar = false;
   let pollCount = 0;
   // Keep Bun event loop alive during long polling loops.
   const keepalive = setInterval(() => {}, 5000);
 
   try {
     while (Date.now() < deadline) {
-      const { poll: status } = await getStatus(activeClient);
+      const { poll: status, timedOut } = await getStatus(activeClient);
       const pastWarmUp = Date.now() > warmUpDeadline;
       pollCount++;
-      if (pollCount % 5 === 0) {
-        process.stderr.write(`[comet-claw] poll #${pollCount}: status=${status.status}, response=${status.response.length > 0 ? status.response.substring(0, 40) + "..." : "(empty)"}, elapsed=${Date.now() - startTime}ms\n`);
+
+      // When evaluate times out, the agent has navigated to an external site.
+      // The results live in a separate sidecar search tab — switch to it.
+      if (timedOut) {
+        consecutiveTimeouts++;
+        logger.debug(`poll #${pollCount}: agent navigating externally (timeout #${consecutiveTimeouts}), elapsed=${Date.now() - startTime}ms`);
+        if (!switchedToSidecar) {
+          const sidecarClient = await findAndConnectSidecar(reconnectConfig);
+          if (sidecarClient) {
+            activeClient = sidecarClient;
+            switchedToSidecar = true;
+            logger.debug("switched to sidecar search tab for polling");
+          }
+        }
+        sawWorking = true;
+        idleCount = 0;
+        await sleep(intervalMs);
+        continue;
       }
 
-      if (status.status === "idle" && !status.response) {
-        consecutiveFailures++;
-        if (consecutiveFailures >= 5 && !reconnected) {
-          reconnected = true;
-        const newClient = await reconnect(reconnectConfig);
-          if (newClient) activeClient = newClient;
-        }
-      } else {
-        consecutiveFailures = 0;
-      }
+      consecutiveTimeouts = 0;
+      logger.debug(`poll #${pollCount}: status=${status.status}, hasStop=${status.hasStopButton}, resp=${status.response.length}chars, steps=[${status.steps.join("; ")}], elapsed=${Date.now() - startTime}ms`);
 
       if (status.status === "completed") {
         return {
@@ -102,24 +109,40 @@ export async function pollForResult(
   }
 }
 
-async function getStatus(client: CDPClient): Promise<{ poll: PollStatus }> {
+const POLL_TIMEOUT = 5_000;
+const IDLE_POLL: PollStatus = { status: "idle", response: "", steps: [], hasStopButton: false };
+
+async function getStatus(client: CDPClient): Promise<{ poll: PollStatus; timedOut: boolean }> {
   try {
-    const { result } = await client.Runtime.evaluate({
+    const evalPromise = client.Runtime.evaluate({
       expression: POLL_SCRIPT,
       returnByValue: true,
       awaitPromise: true,
     });
-    return { poll: result.value as PollStatus };
-  } catch {
-    return { poll: { status: "idle", response: "", steps: [], hasStopButton: false } };
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("poll evaluate timeout")), POLL_TIMEOUT)
+    );
+    const { result } = await Promise.race([evalPromise, timeout]);
+    return { poll: result.value as PollStatus, timedOut: false };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const timedOut = msg.includes("timeout");
+    if (!timedOut) logger.warn(`getStatus failed: ${msg}`);
+    return { poll: IDLE_POLL, timedOut };
   }
 }
 
-async function tryReconnect(config: CometConfig): Promise<CDPClient | null> {
+async function findAndConnectSidecar(config: CometConfig): Promise<CDPClient | null> {
   try {
-    const { client: newClient } = await connect(config);
-    await newClient.Runtime.evaluate({ expression: "1", returnByValue: true });
-    return newClient;
+    const targets = await listTargets(config);
+    const sidecar = findSidecarSearchTarget(targets);
+    if (!sidecar) return null;
+    const tempClient = createCometClient();
+    const conn = await tempClient.connectToTab(sidecar.id, config);
+    // Verify the connection works
+    await conn.client.Runtime.evaluate({ expression: "1", returnByValue: true });
+    logger.debug(`connected to sidecar tab: ${sidecar.url.substring(0, 80)}`);
+    return conn.client;
   } catch {
     return null;
   }

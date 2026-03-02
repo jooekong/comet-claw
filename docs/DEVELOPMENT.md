@@ -24,7 +24,9 @@ src/
 ├── dom-poller.ts         # DOM 状态轮询与结果提取
 ├── poll-script.ts        # DOM 轮询脚本模板
 ├── stream-monitor.ts     # SSE/WebSocket 监控
+├── request-queue.ts      # 请求队列与速率限制
 ├── comet-skill.ts        # 统一编排入口
+├── logger.ts             # 结构化日志
 ├── utils.ts              # 通用工具函数
 └── types.ts              # 类型定义
 skills/

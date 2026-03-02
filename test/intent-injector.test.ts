@@ -54,8 +54,40 @@ describe("findInput", () => {
     expect(result).toContain("textarea");
   });
 
-  test("throws when no input found", async () => {
-    const { client } = createMockClient({ selectorsPresent: [] });
+  test("falls back to auto-discovered input when known selectors miss", async () => {
+    let callCount = 0;
+    const client = {
+      Runtime: {
+        evaluate: mock(async (params: { expression: string }) => {
+          callCount++;
+          if (params.expression.includes("!== null")) {
+            return { result: { value: false } };
+          }
+          if (params.expression.includes("discoverInput")) {
+            return { result: { value: '[role="textbox"]' } };
+          }
+          return { result: { value: null } };
+        }),
+      },
+    } as any;
+    const result = await findInput(client);
+    expect(result).toBe('[role="textbox"]');
+  });
+
+  test("throws when no input found and auto-discover fails", async () => {
+    const client = {
+      Runtime: {
+        evaluate: mock(async (params: { expression: string }) => {
+          if (params.expression.includes("!== null")) {
+            return { result: { value: false } };
+          }
+          if (params.expression.includes("discoverInput")) {
+            return { result: { value: null } };
+          }
+          return { result: { value: null } };
+        }),
+      },
+    } as any;
     expect(findInput(client)).rejects.toThrow("Cannot find input element");
   });
 });

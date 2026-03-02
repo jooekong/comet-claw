@@ -4,24 +4,24 @@ import { DEFAULT_CONFIG } from "./types.js";
 import { sleep } from "./utils.js";
 
 export class CometClient {
-  private cachedConnection: CometConnection | null = null;
+  private pool = new Map<string, CometConnection>();
 
-  getCachedConnection(): CometConnection | null {
-    return this.cachedConnection;
+  get activeConnections(): number {
+    return this.pool.size;
   }
 
-  clearCachedConnection(): void {
-    this.cachedConnection = null;
+  getConnection(targetId: string): CometConnection | undefined {
+    return this.pool.get(targetId);
   }
 
   async connect(config: CometConfig = DEFAULT_CONFIG): Promise<CometConnection> {
-    if (this.cachedConnection && (await this.isConnectionAlive(this.cachedConnection))) {
-      const currentUrl = await getPageUrl(this.cachedConnection.client);
-      if (isPerplexityUrl(currentUrl)) {
-        return this.cachedConnection;
+    for (const [id, conn] of this.pool) {
+      if (await this.isConnectionAlive(conn)) {
+        const currentUrl = await getPageUrl(conn.client);
+        if (isPerplexityUrl(currentUrl)) return conn;
       }
-      await this.cachedConnection.client.close().catch(() => {});
-      this.cachedConnection = null;
+      await conn.client.close().catch(() => {});
+      this.pool.delete(id);
     }
 
     const targets = await listTargets(config);
@@ -29,18 +29,44 @@ export class CometClient {
     const target = perplexityTarget ?? findAnyPageTarget(targets);
     const client = await connectToTarget(config, target.id);
 
-    this.cachedConnection = { client, targetId: target.id };
-    return this.cachedConnection;
+    const conn: CometConnection = { client, targetId: target.id };
+    this.pool.set(target.id, conn);
+    return conn;
   }
 
-  async disconnect(): Promise<void> {
-    if (this.cachedConnection) {
-      try {
-        await this.cachedConnection.client.close();
-      } catch {
-        // already closed
+  async connectToTab(targetId: string, config: CometConfig = DEFAULT_CONFIG): Promise<CometConnection> {
+    const existing = this.pool.get(targetId);
+    if (existing && (await this.isConnectionAlive(existing))) {
+      return existing;
+    }
+
+    const client = await connectToTarget(config, targetId);
+    const conn: CometConnection = { client, targetId };
+    this.pool.set(targetId, conn);
+    return conn;
+  }
+
+  async disconnect(targetId?: string): Promise<void> {
+    if (targetId) {
+      const conn = this.pool.get(targetId);
+      if (conn) {
+        await conn.client.close().catch(() => {});
+        this.pool.delete(targetId);
       }
-      this.cachedConnection = null;
+      return;
+    }
+
+    const first = this.pool.values().next().value as CometConnection | undefined;
+    if (first) {
+      await first.client.close().catch(() => {});
+      this.pool.delete(first.targetId);
+    }
+  }
+
+  async disconnectAll(): Promise<void> {
+    for (const [id, conn] of this.pool) {
+      await conn.client.close().catch(() => {});
+      this.pool.delete(id);
     }
   }
 
@@ -63,12 +89,9 @@ export function createCometClient(): CometClient {
   return new CometClient();
 }
 
-export function getCachedConnection(): CometConnection | null {
-  return defaultCometClient.getCachedConnection();
-}
-
-export function clearCachedConnection(): void {
-  defaultCometClient.clearCachedConnection();
+export function getCachedConnection(): CometConnection | undefined {
+  const first = [...defaultCometClient["pool"].values()][0];
+  return first;
 }
 
 export async function listTargets(
@@ -86,6 +109,17 @@ export function findPerplexityTarget(targets: CDPTarget[]): CDPTarget | null {
         t.type === "page" &&
         t.url.includes("perplexity.ai") &&
         !t.url.includes("sidecar")
+    ) ?? null
+  );
+}
+
+/** Find the sidecar search tab where agent results live (e.g. /sidecar/search/...) */
+export function findSidecarSearchTarget(targets: CDPTarget[]): CDPTarget | null {
+  return (
+    targets.find(
+      (t) =>
+        t.type === "page" &&
+        t.url.includes("perplexity.ai/sidecar/search/")
     ) ?? null
   );
 }

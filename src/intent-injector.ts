@@ -85,9 +85,50 @@ export async function findInput(client: CDPClient): Promise<string> {
     });
     if (result.value === true) return selector;
   }
+
+  const discovered = await discoverInput(client);
+  if (discovered) return discovered;
+
   throw new Error(
-    `Cannot find input element. Tried: ${INPUT_SELECTORS.join(", ")}`
+    `Cannot find input element. Tried: ${INPUT_SELECTORS.join(", ")} + auto-discover`
   );
+}
+
+const DISCOVER_SCRIPT = `(() => {
+  // discoverInput: heuristic scan for the main text input
+  const candidates = [
+    ...document.querySelectorAll('[role="textbox"]'),
+    ...document.querySelectorAll('[contenteditable]'),
+    ...document.querySelectorAll('textarea'),
+    ...document.querySelectorAll('input[type="text"]'),
+  ];
+
+  for (const el of candidates) {
+    if (el.offsetParent === null) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 100 || rect.height < 20) continue;
+    if (el.closest("nav, aside, header, footer")) continue;
+
+    if (el.getAttribute("contenteditable"))
+      return '[contenteditable="' + el.getAttribute("contenteditable") + '"]';
+    if (el.getAttribute("role"))
+      return '[role="' + el.getAttribute("role") + '"]';
+    if (el.tagName === "TEXTAREA") return "textarea";
+    return 'input[type="text"]';
+  }
+  return null;
+})()`;
+
+async function discoverInput(client: CDPClient): Promise<string | null> {
+  try {
+    const { result } = await client.Runtime.evaluate({
+      expression: DISCOVER_SCRIPT,
+      returnByValue: true,
+    });
+    return (result.value as string) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function fillInput(

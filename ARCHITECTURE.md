@@ -24,6 +24,7 @@
 | Skill 编排 | 已实现 | `src/comet-skill.ts`，页面状态管理 + 依赖注入 |
 | CLI 入口 | 已实现 | `src/index.ts`，JSON stdout 输出 |
 | OpenClaw Skill | 已实现 | `skills/comet-perplexity/SKILL.md` |
+| 请求队列 | 已实现 | `src/request-queue.ts`，串行化 + cooldown |
 | 单元测试 | 已实现 | 见 `test/*.test.ts` |
 
 ## 架构概览
@@ -70,20 +71,22 @@
 
 | 模块 | 文件 | 职责 |
 |------|------|------|
-| CDP Client | `src/cdp-client.ts` | 连接管理、Target 选择、健康检查、重连 |
+| CDP Client | `src/cdp-client.ts` | 连接池管理、多标签复用、Target 选择、健康检查、重连 |
 | Intent Injector | `src/intent-injector.ts` | 任务注入（paste + Enter），模式切换 |
 | DOM Poller | `src/dom-poller.ts` | 状态轮询（idle/working/completed），结果提取 |
 | Poll Script | `src/poll-script.ts` | 轮询脚本模板（从 `dom-poller.ts` 引用） |
 | Stream Monitor | `src/stream-monitor.ts` | SSE 拦截 + WebSocket 监控 |
+| Request Queue | `src/request-queue.ts` | 请求串行化 + 速率限制 |
 | Comet Skill | `src/comet-skill.ts` | 编排入口：页面管理 → 注入 → 轮询 |
 | CLI | `src/index.ts` | 命令行解析 + JSON 输出 |
+| Logger | `src/logger.ts` | 结构化日志（level 控制，`COMET_LOG` 环境变量） |
 | Utils | `src/utils.ts` | 通用工具函数（如 sleep） |
 
 ## 已知问题
 
-1. Selector 硬编码 — 依赖 `[contenteditable="true"]`，可能随 Comet 更新变化
-2. 无真实 Comet 集成测试 — 当前仅有 mock 测试（Phase 4 解决）
-3. 无请求队列 — 并发调用可能触发 Perplexity 速率限制（待实现）
+1. ~~Selector 硬编码~~ — 已增加 auto-discover fallback（`findInput` 启发式扫描）
+2. ~~无真实 Comet 集成测试~~ — 已创建 `test/integration/smoke.test.ts`（需 Comet 运行时手动执行 `bun run test:integration`）
+3. ~~无请求队列~~ — 已通过 `RequestQueue` 解决（串行执行 + 2s cooldown）
 
 ## 演进路线
 
