@@ -2,7 +2,7 @@
 
 通过 CDP 将 OpenClaw Agent 与 Perplexity Comet 浏览器连接，实现 Agent-to-Agent 协作。
 
-> 最后核对时间：2026-02-28
+> 最后核对时间：2026-03-02
 > 本文档严格区分"已实现"与"规划中"，避免状态漂移。
 
 ## 设计原则
@@ -21,11 +21,10 @@
 | DOM 轮询 | 已实现 | `src/dom-poller.ts`，状态检测 + 结果提取 |
 | SSE 流拦截 | 已实现 | `src/stream-monitor.ts` |
 | WebSocket 监控 | 已实现 | `src/stream-monitor.ts`（Agent 动作解析） |
-| 结果提取 | 已实现 | `src/result-extractor.ts` |
 | Skill 编排 | 已实现 | `src/comet-skill.ts`，页面状态管理 + 依赖注入 |
 | CLI 入口 | 已实现 | `src/index.ts`，JSON stdout 输出 |
 | OpenClaw Skill | 已实现 | `skills/comet-perplexity/SKILL.md` |
-| 单元测试 | 已实现 | 62 tests across 7 files |
+| 单元测试 | 已实现 | 见 `test/*.test.ts` |
 
 ## 架构概览
 
@@ -47,7 +46,7 @@
 │  └─────┬──────┘ └─────┬─────┘ └─────┬─────┘ │
 │        │              │             │        │
 │  ┌─────▼──────────────▼─────────────▼─────┐  │
-│  │         Result Extractor               │  │
+│  │       DOM Poller / Extractor           │  │
 │  └────────────────────────────────────────┘  │
 └──────────────────┬───────────────────────────┘
                    │ CDP (connectOverCDP :9222)
@@ -64,7 +63,7 @@
 3. Skill 编排器先导航到首页确保干净输入状态
 4. Intent Injector 通过 ClipboardEvent paste 注入查询文本，KeyboardEvent 提交
 5. DOM Poller 通过 Runtime.evaluate 轮询页面状态（idle/working/completed）
-6. Result Extractor 从 DOM 提取结构化结果（文本 + 引用）
+6. DOM Poller 在轮询阶段直接提取结构化结果（文本 + 引用）
 7. CLI 将 JSON 结果输出到 stdout，返回给 OpenClaw
 
 ## 模块职责
@@ -74,17 +73,17 @@
 | CDP Client | `src/cdp-client.ts` | 连接管理、Target 选择、健康检查、重连 |
 | Intent Injector | `src/intent-injector.ts` | 任务注入（paste + Enter），模式切换 |
 | DOM Poller | `src/dom-poller.ts` | 状态轮询（idle/working/completed），结果提取 |
+| Poll Script | `src/poll-script.ts` | 轮询脚本模板（从 `dom-poller.ts` 引用） |
 | Stream Monitor | `src/stream-monitor.ts` | SSE 拦截 + WebSocket 监控 |
-| Result Extractor | `src/result-extractor.ts` | DOM 结果提取和结构化 |
 | Comet Skill | `src/comet-skill.ts` | 编排入口：页面管理 → 注入 → 轮询 |
 | CLI | `src/index.ts` | 命令行解析 + JSON 输出 |
+| Utils | `src/utils.ts` | 通用工具函数（如 sleep） |
 
 ## 已知问题
 
 1. Selector 硬编码 — 依赖 `[contenteditable="true"]`，可能随 Comet 更新变化
 2. 无真实 Comet 集成测试 — 当前仅有 mock 测试（Phase 4 解决）
-3. 无请求队列 — 并发调用可能触发 Perplexity 速率限制（Phase 3 解决）
-4. `execCommand("selectAll"/"delete")` 无法清除 Lexical 编辑器内容 — 依赖 `ensureCleanHomePage` 导航获取空白输入
+3. 无请求队列 — 并发调用可能触发 Perplexity 速率限制（待实现）
 
 ## 演进路线
 

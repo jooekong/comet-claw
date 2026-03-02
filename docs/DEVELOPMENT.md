@@ -3,7 +3,7 @@
 ## 技术栈
 
 - Runtime：Bun（包管理 + 测试），兼容 Node >= 22
-- 浏览器自动化：`playwright-core`（仅 API，无 bundled browsers）
+- CDP 客户端：`chrome-remote-interface`
 - TypeScript 严格模式
 - CLI：轻量手写 parser（无外部依赖）
 
@@ -21,9 +21,11 @@ src/
 ├── index.ts              # CLI 入口
 ├── cdp-client.ts         # CDP 连接管理
 ├── intent-injector.ts    # 任务意图注入
+├── dom-poller.ts         # DOM 状态轮询与结果提取
+├── poll-script.ts        # DOM 轮询脚本模板
 ├── stream-monitor.ts     # SSE/WebSocket 监控
-├── result-extractor.ts   # 结果提取和结构化
 ├── comet-skill.ts        # 统一编排入口
+├── utils.ts              # 通用工具函数
 └── types.ts              # 类型定义
 skills/
 └── comet-perplexity/
@@ -41,6 +43,6 @@ docs/                     # 项目文档
 ## 外部参考
 
 - [Perplexity Comet](https://www.perplexity.ai/comet/)
-- [Playwright CDP](https://playwright.dev/docs/api/class-browsertype#browser-type-connect-over-cdp)
+- [chrome-remote-interface](https://github.com/cyrus-and/chrome-remote-interface)
 - [OpenClaw Skills](https://docs.openclaw.ai/tools/skills)
 - [Perplexity-Comet-MCP](https://github.com/RapierCraft/Perplexity-Comet-MCP) — 社区参考实现

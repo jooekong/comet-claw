@@ -97,4 +97,37 @@ describe("pollForResult", () => {
     );
     expect(result.answer).toBe("Agent done");
   });
+
+  test("reconnects after consecutive idle polls", async () => {
+    const client = createMockClient([{ status: "idle", response: "" }]);
+    const reconnectedClient = createMockClient([
+      { status: "completed", response: "Recovered after reconnect" },
+    ]);
+    const reconnect = mock(async () => reconnectedClient);
+
+    const result = await pollForResult(client, "search", Date.now(), 1000, {
+      intervalMs: 5,
+      maxIdlePolls: 3,
+      warmUpMs: 0,
+      reconnect,
+    });
+
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    expect(result.answer).toBe("Recovered after reconnect");
+  });
+
+  test("falls back to timeout result when reconnect fails", async () => {
+    const client = createMockClient([{ status: "idle", response: "" }]);
+    const reconnect = mock(async () => null);
+
+    const result = await pollForResult(client, "search", Date.now(), 120, {
+      intervalMs: 10,
+      maxIdlePolls: 3,
+      warmUpMs: 0,
+      reconnect,
+    });
+
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    expect(result.answer).toContain("No response");
+  });
 });

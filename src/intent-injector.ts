@@ -1,4 +1,5 @@
 import type { CDPClient, TaskMode } from "./types.js";
+import { sleep } from "./utils.js";
 
 export const INPUT_SELECTORS = [
   '[contenteditable="true"]',
@@ -124,8 +125,4 @@ async function pressEnter(client: CDPClient): Promise<void> {
     })()`,
     awaitPromise: true,
   });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }

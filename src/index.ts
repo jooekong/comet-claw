@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import type { CLICommand, TaskMode } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
-import { healthCheck } from "./cdp-client.js";
+import { connect, disconnect, healthCheck } from "./cdp-client.js";
 import { executeTask } from "./comet-skill.js";
 
 function log(msg: string): void {
@@ -61,8 +61,31 @@ async function main(): Promise<void> {
   }
 
   if (cmd.name === "connect") {
-    const status = await healthCheck(DEFAULT_CONFIG);
-    process.stdout.write(JSON.stringify(status, null, 2) + "\n");
+    try {
+      const conn = await connect(DEFAULT_CONFIG);
+      const { result } = await conn.client.Runtime.evaluate({
+        expression: "window.location.href",
+        returnByValue: true,
+      });
+      process.stdout.write(
+        JSON.stringify(
+          {
+            connected: true,
+            targetId: conn.targetId,
+            url: typeof result.value === "string" ? result.value : undefined,
+          },
+          null,
+          2
+        ) + "\n"
+      );
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      log(`Error: ${error}`);
+      process.stdout.write(JSON.stringify({ connected: false, error }) + "\n");
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
     return;
   }
 
@@ -83,7 +106,6 @@ async function main(): Promise<void> {
     process.stdout.write(JSON.stringify({ error }) + "\n");
     process.exit(1);
   } finally {
-    const { disconnect } = await import("./cdp-client.js");
     await disconnect();
   }
 }
