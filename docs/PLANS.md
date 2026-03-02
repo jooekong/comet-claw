@@ -8,8 +8,8 @@
 |-------|------|------|
 | 1 | 项目初始化 + 脚手架 | 已完成 |
 | 2 | 核心实现（CDP + 注入 + 提取） | 已完成 |
-| 3 | 增强监控（WebSocket + 流式输出） | 进行中 |
-| 4 | 生产优化（多标签复用 + 韧性） | 未开始 |
+| 3 | 增强监控（WebSocket + 流式输出） | 已完成 |
+| 4 | 生产优化（多标签复用 + 韧性） | 已完成 |
 
 ---
 
@@ -30,17 +30,17 @@
 - [x] CLI 入口：命令解析 + JSON 输出
 - [x] 基础单元测试（持续补充）
 
-## Phase 3: 增强监控（进行中）
+## Phase 3: 增强监控（已完成）
 
 - [x] WebSocket 监控（Deep Research 进度）
 - [x] 流式输出支持（逐 chunk 输出到 stderr）
 - [x] 超时和错误处理
-- [ ] 请求队列和速率限制
+- [x] 请求队列和速率限制（`src/request-queue.ts`，集成到 `comet-skill.ts`）
 
-## Phase 4: 生产优化
+## Phase 4: 生产优化（已完成）
 
-- [ ] 多标签页复用
-- [ ] Selector 韧性（fallback 链 + 自动发现）
-- [ ] 遥测和错误日志
-- [ ] 与真实 Comet 的集成测试
-- [ ] npm 发布准备
+- [x] 多标签页复用（`CometClient` 连接池 + `connectToTab` / `disconnectAll`）
+- [x] Selector 韧性（fallback 链 + 自动发现）
+- [x] 遥测和错误日志（`src/logger.ts`，统一 Logger + 环境变量 `COMET_LOG`）
+- [x] 与真实 Comet 的集成测试（`test/integration/smoke.test.ts`，需 Comet 运行时手动执行）
+- [x] npm 发布准备（`package.json` 补充 description/keywords/license/engines/files）

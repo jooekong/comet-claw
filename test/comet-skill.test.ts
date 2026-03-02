@@ -3,6 +3,9 @@ import { executeTask, streamChunkToStderr } from "../src/comet-skill.js";
 import type { SkillDeps } from "../src/comet-skill.js";
 import type { CometConfig } from "../src/types.js";
 import { AGENT_TIMEOUT } from "../src/types.js";
+import { RequestQueue } from "../src/request-queue.js";
+
+const testQueue = new RequestQueue({ cooldownMs: 0, maxSize: 100 });
 
 const testConfig: CometConfig = {
   cdpEndpoint: "http://127.0.0.1:9222",
@@ -94,14 +97,14 @@ describe("streamChunkToStderr", () => {
 describe("executeTask", () => {
   test("returns polled result", async () => {
     const deps = createMockDeps();
-    const result = await executeTask("test", "search", testConfig, deps);
+    const result = await executeTask("test", "search", testConfig, deps, testQueue);
     expect(result.answer).toBe("Polled result");
     expect(result.mode).toBe("search");
   });
 
   test("passes correct mode to injectIntent", async () => {
     const deps = createMockDeps();
-    await executeTask("q", "agent_task", testConfig, deps);
+    await executeTask("q", "agent_task", testConfig, deps, testQueue);
     expect(deps.injectIntent).toHaveBeenCalledWith(expect.anything(), "q", "agent_task");
   });
 
@@ -114,7 +117,7 @@ describe("executeTask", () => {
         return { answer: "ok", citations: [], researchSteps: [], mode, durationMs: Date.now() - st };
       }),
     });
-    await executeTask("q", "search", testConfig, deps);
+    await executeTask("q", "search", testConfig, deps, testQueue);
     expect(callOrder[0]).toBe("inject");
     expect(callOrder[1]).toBe("poll");
   });
@@ -126,7 +129,7 @@ describe("executeTask", () => {
         return { answer: "ok", citations: [], researchSteps: [], mode, durationMs: Date.now() - st };
       }),
     });
-    const result = await executeTask("q", "search", testConfig, deps);
+    const result = await executeTask("q", "search", testConfig, deps, testQueue);
     expect(result.durationMs).toBeGreaterThanOrEqual(20);
   });
 
@@ -138,7 +141,7 @@ describe("executeTask", () => {
         return { answer: "ok", citations: [], researchSteps: [], mode, durationMs: Date.now() - st };
       }),
     });
-    await executeTask("browse v2ex", "agent_task", testConfig, deps);
+    await executeTask("browse v2ex", "agent_task", testConfig, deps, testQueue);
     expect(receivedTimeout).toBe(AGENT_TIMEOUT);
   });
 
@@ -150,7 +153,7 @@ describe("executeTask", () => {
         return { answer: "ok", citations: [], researchSteps: [], mode, durationMs: Date.now() - st };
       }),
     });
-    await executeTask("hello", "search", testConfig, deps);
+    await executeTask("hello", "search", testConfig, deps, testQueue);
     expect(receivedTimeout).toBe(testConfig.timeout);
   });
 
@@ -162,7 +165,7 @@ describe("executeTask", () => {
         return { answer: "ok", citations: [], researchSteps: [], mode, durationMs: Date.now() - st };
       }),
     });
-    await executeTask("browse", "agent_task", testConfig, deps);
+    await executeTask("browse", "agent_task", testConfig, deps, testQueue);
     expect(receivedOpts.warmUpMs).toBe(30_000);
   });
 
@@ -186,7 +189,7 @@ describe("executeTask", () => {
     });
 
     try {
-      await expect(executeTask("q", "search", testConfig, deps))
+      await expect(executeTask("q", "search", testConfig, deps, testQueue))
         .rejects.toThrow("Comet home page input was not ready/clean within timeout");
     } finally {
       nowSpy.mockRestore();

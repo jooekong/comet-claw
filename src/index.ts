@@ -3,9 +3,10 @@ import type { CLICommand, TaskMode } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 import { connect, disconnect, healthCheck } from "./cdp-client.js";
 import { executeTask } from "./comet-skill.js";
+import { logger } from "./logger.js";
 
 function log(msg: string): void {
-  process.stderr.write(`[comet-claw] ${msg}\n`);
+  logger.info(msg);
 }
 
 function normalizeCommand(raw: string | undefined): string {

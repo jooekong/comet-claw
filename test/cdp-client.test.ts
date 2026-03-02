@@ -165,3 +165,17 @@ describe("CometClient.connect", () => {
     }
   }, 15_000);
 });
+
+describe("CometClient connection pool", () => {
+  test("activeConnections starts empty", () => {
+    const c = createCometClient();
+    expect(c.activeConnections).toBe(0);
+  });
+
+  test("disconnectAll clears all cached connections", async () => {
+    const c = createCometClient();
+    expect(c.activeConnections).toBe(0);
+    await c.disconnectAll();
+    expect(c.activeConnections).toBe(0);
+  });
+});
