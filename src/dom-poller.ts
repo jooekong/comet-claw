@@ -126,7 +126,8 @@ async function getStatus(client: CDPClient): Promise<{ poll: PollStatus; timedOu
     return { poll: result.value as PollStatus, timedOut: false };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const timedOut = msg.includes("timeout");
+    const isConnectionLost = msg.includes("closed") || msg.includes("disconnected");
+    const timedOut = msg.includes("timeout") || isConnectionLost;
     if (!timedOut) logger.warn(`getStatus failed: ${msg}`);
     return { poll: IDLE_POLL, timedOut };
   }
