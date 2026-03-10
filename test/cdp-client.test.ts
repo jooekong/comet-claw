@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   findPerplexityTarget,
+  findSidecarSearchTarget,
   findAnyPageTarget,
   parseTargets,
   normalizeLoopbackEndpoint,
@@ -35,6 +36,41 @@ describe("findPerplexityTarget", () => {
 
   test("returns null when no perplexity pages", () => {
     expect(findPerplexityTarget([target("https://github.com")])).toBeNull();
+  });
+});
+
+describe("findSidecarSearchTarget", () => {
+  test("matches sidecar base URL", () => {
+    const targets = [
+      target("https://www.perplexity.ai/sidecar"),
+    ];
+    expect(findSidecarSearchTarget(targets)?.url).toBe(
+      "https://www.perplexity.ai/sidecar"
+    );
+  });
+
+  test("matches sidecar search URL", () => {
+    const targets = [
+      target("https://www.perplexity.ai/sidecar/search/abc123"),
+    ];
+    expect(findSidecarSearchTarget(targets)?.url).toBe(
+      "https://www.perplexity.ai/sidecar/search/abc123"
+    );
+  });
+
+  test("returns null when no sidecar", () => {
+    const targets = [
+      target("https://www.perplexity.ai/search?q=test"),
+      target("https://github.com"),
+    ];
+    expect(findSidecarSearchTarget(targets)).toBeNull();
+  });
+
+  test("ignores non-page targets", () => {
+    const targets = [
+      target("https://www.perplexity.ai/sidecar", "iframe"),
+    ];
+    expect(findSidecarSearchTarget(targets)).toBeNull();
   });
 });
 
