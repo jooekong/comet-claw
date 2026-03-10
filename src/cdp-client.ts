@@ -119,7 +119,7 @@ export function findSidecarSearchTarget(targets: CDPTarget[]): CDPTarget | null 
     targets.find(
       (t) =>
         t.type === "page" &&
-        t.url.includes("perplexity.ai/sidecar/search/")
+        t.url.includes("perplexity.ai/sidecar")
     ) ?? null
   );
 }
