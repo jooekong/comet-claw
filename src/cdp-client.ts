@@ -150,6 +150,13 @@ export async function connect(
   return defaultCometClient.connect(config);
 }
 
+export async function connectToTab(
+  targetId: string,
+  config: CometConfig = DEFAULT_CONFIG
+): Promise<CometConnection> {
+  return defaultCometClient.connectToTab(targetId, config);
+}
+
 async function getPageUrl(client: CDPClient): Promise<string> {
   try {
     const { result } = await client.Runtime.evaluate({
@@ -219,7 +226,7 @@ async function connectToTarget(
 }
 
 export async function disconnect(): Promise<void> {
-  await defaultCometClient.disconnect();
+  await defaultCometClient.disconnectAll();
 }
 
 export interface HealthStatus {
