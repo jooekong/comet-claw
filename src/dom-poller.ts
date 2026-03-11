@@ -1,5 +1,5 @@
 import type { CDPClient, TaskResult, TaskMode, Citation, CometConfig } from "./types.js";
-import { listTargets, findSidecarSearchTarget, createCometClient } from "./cdp-client.js";
+import { listTargets, findSidecarSearchTarget, connectToTab } from "./cdp-client.js";
 import { DEFAULT_CONFIG } from "./types.js";
 import { POLL_SCRIPT } from "./poll-script.js";
 import { sleep } from "./utils.js";
@@ -138,8 +138,7 @@ async function findAndConnectSidecar(config: CometConfig): Promise<CDPClient | n
     const targets = await listTargets(config);
     const sidecar = findSidecarSearchTarget(targets);
     if (!sidecar) return null;
-    const tempClient = createCometClient();
-    const conn = await tempClient.connectToTab(sidecar.id, config);
+    const conn = await connectToTab(sidecar.id, config);
     // Verify the connection works
     await conn.client.Runtime.evaluate({ expression: "1", returnByValue: true });
     logger.debug(`connected to sidecar tab: ${sidecar.url.substring(0, 80)}`);
