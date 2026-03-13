@@ -10,7 +10,7 @@
 - 意图注入，非 UI 自动化 — 只下发"what"，让 Comet 决定"how"
 - DOM 轮询为主 — 通过 Runtime.evaluate 轮询页面状态和结果
 - 最小化 UI 依赖 — 仅依赖 contenteditable 输入框一个稳定元素
-- 纯 JS 注入优先 — 通过 ClipboardEvent/KeyboardEvent 操作 Lexical 编辑器，不依赖 CDP Input（需浏览器窗口前台）
+- 纯 JS 注入优先 — 通过 ClipboardEvent/KeyboardEvent 操作 Lexical 编辑器，不用 CDP Input.dispatch*。原因：Comet 是桌面应用，用户随时可能切走窗口，CDP Input 在窗口失焦时会静默失败；JS 事件在后台也能正常触发
 
 ## 能力状态总览
 
