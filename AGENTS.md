@@ -48,4 +48,55 @@
 > 没有写进 repo 的知识对 Agent 不存在。
 
 ---
+
+## Build & Test
+
+```bash
+bun install               # 安装依赖
+bun test                  # 单元测试
+bun run test:integration  # 集成测试（需运行中的 Comet）
+bun run typecheck         # tsc --noEmit
+bun run dev               # watch mode
+```
+
+---
+
+## 源码结构（src/）
+
+| 文件 | 职责 |
+|------|------|
+| `index.ts` | CLI 入口，参数解析，JSON stdout |
+| `comet-skill.ts` | 编排器：navigate → inject → poll → extract |
+| `cdp-client.ts` | CDP 连接池，Target 选择，指数退避重连 |
+| `intent-injector.ts` | ClipboardEvent paste + KeyboardEvent Enter |
+| `dom-poller.ts` | 状态轮询 (idle/working/completed) + 结果提取 |
+| `poll-script.ts` | 轮询脚本模板（dom-poller 引用） |
+| `stream-monitor.ts` | SSE 拦截 + WebSocket 监控 |
+| `request-queue.ts` | 串行执行 + 速率限制 |
+| `logger.ts` | 结构化日志（COMET_LOG 环境变量） |
+| `types.ts` | 共享类型 + 默认配置 |
+| `utils.ts` | 工具函数 |
+
+---
+
+## 编码约定
+
+- Bun-only，bin 直接指向 .ts 源码
+- JSON stdout 输出，日志走 stderr
+
+---
+
+## Safety Rails
+
+- NEVER 在 stdout 输出非 JSON 内容（破坏 OpenClaw agent 解析）
+- ALWAYS 在 finally 中调用 disconnect() 关闭 CDP 连接
+- ALWAYS 修改 DOM 轮询逻辑后运行 bun test 验证
+
+---
+
+## Compact Instructions
+
+上下文压缩时保留：Build & Test 命令、源码结构、Safety Rails
+
+---
 *找不到某个决策？去 `docs/design-docs/` 找。还找不到，说明它没被记录——请创建它。*
