@@ -129,23 +129,23 @@ describe("parseTargets", () => {
 
 describe("normalizeLoopbackEndpoint", () => {
   test("converts localhost to 127.0.0.1", () => {
-    expect(normalizeLoopbackEndpoint("http://localhost:9222")).toBe(
-      "http://127.0.0.1:9222"
+    expect(normalizeLoopbackEndpoint("http://localhost:9333")).toBe(
+      "http://127.0.0.1:9333"
     );
   });
 
   test("keeps 127.0.0.1 unchanged", () => {
-    expect(normalizeLoopbackEndpoint("http://127.0.0.1:9222")).toBe(
-      "http://127.0.0.1:9222"
+    expect(normalizeLoopbackEndpoint("http://127.0.0.1:9333")).toBe(
+      "http://127.0.0.1:9333"
     );
   });
 });
 
 describe("parseEndpoint", () => {
   test("extracts host and port", () => {
-    expect(parseEndpoint("http://127.0.0.1:9222")).toEqual({
+    expect(parseEndpoint("http://127.0.0.1:9333")).toEqual({
       host: "127.0.0.1",
-      port: 9222,
+      port: 9333,
     });
   });
 
@@ -156,17 +156,17 @@ describe("parseEndpoint", () => {
     });
   });
 
-  test("defaults port to 9222", () => {
+  test("defaults port to 9333", () => {
     expect(parseEndpoint("http://127.0.0.1")).toEqual({
       host: "127.0.0.1",
-      port: 9222,
+      port: 9333,
     });
   });
 
   test("handles invalid URL", () => {
     expect(parseEndpoint("not-a-url")).toEqual({
       host: "127.0.0.1",
-      port: 9222,
+      port: 9333,
     });
   });
 });

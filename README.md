@@ -39,19 +39,21 @@ bun link
 # macOS
 /Applications/Comet.app/Contents/MacOS/Comet \
   --remote-debugging-address=127.0.0.1 \
-  --remote-debugging-port=9222 \
+  --remote-debugging-port=9333 \
   --no-first-run
 
 # Windows
 "%LOCALAPPDATA%\Perplexity\Comet\Application\comet.exe" \
   --remote-debugging-address=127.0.0.1 \
-  --remote-debugging-port=9222
+  --remote-debugging-port=9333
 ```
+
+You can override the port via the `COMET_CDP_PORT` environment variable.
 
 2. Verify the CDP endpoint:
 
 ```bash
-curl http://localhost:9222/json
+curl http://localhost:9333/json
 ```
 
 ## Usage

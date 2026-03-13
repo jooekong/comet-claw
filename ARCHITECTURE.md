@@ -50,7 +50,7 @@
 │  │       DOM Poller / Extractor           │  │
 │  └────────────────────────────────────────┘  │
 └──────────────────┬───────────────────────────┘
-                   │ CDP (connectOverCDP :9222)
+                   │ CDP (connectOverCDP :9333)
 ┌──────────────────▼───────────────────────────┐
 │            Comet Browser                     │
 │        (Perplexity Agentic Browsing)         │
@@ -60,7 +60,7 @@
 ## 数据流
 
 1. OpenClaw Agent 通过 `bash` 工具执行 `comet-claw search "query"`
-2. CLI 通过 `chrome-remote-interface` CDP 连接 Comet（端口 9222）
+2. CLI 通过 `chrome-remote-interface` CDP 连接 Comet（端口 9333，可通过 `COMET_CDP_PORT` 环境变量覆盖）
 3. Skill 编排器先导航到首页确保干净输入状态
 4. Intent Injector 通过 ClipboardEvent paste 注入查询文本，KeyboardEvent 提交
 5. DOM Poller 通过 Runtime.evaluate 轮询页面状态（idle/working/completed）

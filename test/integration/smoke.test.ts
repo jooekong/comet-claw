@@ -1,5 +1,5 @@
 /**
- * Integration smoke test — requires a running Comet browser with CDP on :9222.
+ * Integration smoke test — requires a running Comet browser with CDP on :9333.
  *
  * Run manually: bun run test:integration
  * Skipped in CI / regular `bun test`.

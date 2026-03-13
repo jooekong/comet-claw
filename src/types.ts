@@ -44,7 +44,9 @@ export interface CometConfig {
 }
 
 export const DEFAULT_CONFIG: CometConfig = {
-  cdpEndpoint: "http://127.0.0.1:9222",
+  cdpEndpoint: process.env.COMET_CDP_PORT
+    ? `http://127.0.0.1:${process.env.COMET_CDP_PORT}`
+    : "http://127.0.0.1:9333",
   connectTimeoutMs: 30_000,
   timeout: 60_000,
   sseRoutePatterns: ["**/rest/sse/**", "**/api/answer**"],

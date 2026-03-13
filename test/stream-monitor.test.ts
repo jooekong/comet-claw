@@ -57,7 +57,7 @@ describe("parseAction", () => {
 });
 
 const BASE_CONFIG: CometConfig = {
-  cdpEndpoint: "http://127.0.0.1:9222",
+  cdpEndpoint: "http://127.0.0.1:9333",
   connectTimeoutMs: 30000,
   timeout: 50,
   sseRoutePatterns: ["**/api/answer**"],

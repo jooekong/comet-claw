@@ -6,7 +6,7 @@ metadata: {"openclaw": {"requires": {"bins": ["comet-claw"]}, "emoji": "☄️",
 
 # Comet Perplexity Skill
 
-Use the `comet-claw` CLI to delegate web search and deep research tasks to the Perplexity Comet browser. Comet must be running with CDP debugging enabled on port 9222.
+Use the `comet-claw` CLI to delegate web search and deep research tasks to the Perplexity Comet browser. Comet must be running with CDP debugging enabled on port 9333 (configurable via `COMET_CDP_PORT` env var).
 
 ## When to Use
 
@@ -67,7 +67,7 @@ All commands output JSON to stdout:
 Comet must be launched with remote debugging:
 
 ```bash
-/Applications/Comet.app/Contents/MacOS/Comet --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --no-first-run
+/Applications/Comet.app/Contents/MacOS/Comet --remote-debugging-address=127.0.0.1 --remote-debugging-port=9333 --no-first-run
 ```
 
 ## Tips

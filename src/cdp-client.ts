@@ -180,9 +180,9 @@ export function parseEndpoint(endpoint: string): { host: string; port: number } 
   const normalized = normalizeLoopbackEndpoint(endpoint);
   try {
     const url = new URL(normalized);
-    return { host: url.hostname, port: Number(url.port) || 9222 };
+    return { host: url.hostname, port: Number(url.port) || 9333 };
   } catch {
-    return { host: "127.0.0.1", port: 9222 };
+    return { host: "127.0.0.1", port: 9333 };
   }
 }
 
