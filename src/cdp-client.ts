@@ -97,7 +97,7 @@ export function getCachedConnection(): CometConnection | undefined {
 export async function listTargets(
   config: CometConfig = DEFAULT_CONFIG
 ): Promise<CDPTarget[]> {
-  const { host, port } = parseEndpoint(config.cdpEndpoint);
+  const { host, port } = await resolveEndpoint(config);
   const response = await fetch(`http://${host}:${port}/json/list`);
   return (await response.json()) as CDPTarget[];
 }
@@ -186,11 +186,56 @@ export function parseEndpoint(endpoint: string): { host: string; port: number } 
   }
 }
 
+// --- Port auto-discovery ---
+
+let discoveredEndpoint: { host: string; port: number } | null = null;
+
+async function tryFetchTargets(host: string, port: number): Promise<CDPTarget[] | null> {
+  try {
+    const resp = await fetch(`http://${host}:${port}/json/list`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    return (await resp.json()) as CDPTarget[];
+  } catch {
+    return null;
+  }
+}
+
+function hasCometTarget(targets: CDPTarget[]): boolean {
+  return targets.some(t => t.type === "page" && t.url.includes("perplexity.ai"));
+}
+
+async function resolveEndpoint(config: CometConfig): Promise<{ host: string; port: number }> {
+  if (process.env.COMET_CDP_PORT) return parseEndpoint(config.cdpEndpoint);
+  if (discoveredEndpoint) return discoveredEndpoint;
+
+  // Try 9222: use only if it's Comet (has perplexity.ai targets)
+  const targets = await tryFetchTargets("127.0.0.1", 9222);
+  if (targets && hasCometTarget(targets)) {
+    discoveredEndpoint = { host: "127.0.0.1", port: 9222 };
+    return discoveredEndpoint;
+  }
+
+  // 9222 is Chrome or unreachable → fallback to 9333
+  const targets9333 = await tryFetchTargets("127.0.0.1", 9333);
+  if (targets9333) {
+    discoveredEndpoint = { host: "127.0.0.1", port: 9333 };
+    return discoveredEndpoint;
+  }
+
+  throw new Error(
+    "Cannot find Comet browser. Enable remote debugging via:\n" +
+    "  1. Open chrome://inspect/#remote-debugging in Comet, or\n" +
+    "  2. Launch with: --remote-debugging-port=9333\n" +
+    "  3. Or set COMET_CDP_PORT env var"
+  );
+}
+
 async function connectToTarget(
   config: CometConfig,
   targetId: string
 ): Promise<CDPClient> {
-  const { host, port } = parseEndpoint(config.cdpEndpoint);
+  const { host, port } = await resolveEndpoint(config);
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {

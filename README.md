@@ -33,7 +33,14 @@ bun link
 
 ## Setup
 
-1. Launch Comet with CDP debugging enabled:
+1. Enable CDP debugging (choose one):
+
+**Option A: UI toggle (Chromium 146+, recommended)**
+
+Open `chrome://inspect/#remote-debugging` in Comet and enable "Allow remote debugging".
+comet-claw will auto-detect the port (tries 9222 first, falls back to 9333).
+
+**Option B: Command line**
 
 ```bash
 # macOS
@@ -48,12 +55,12 @@ bun link
   --remote-debugging-port=9333
 ```
 
-You can override the port via the `COMET_CDP_PORT` environment variable.
+You can also override the port via the `COMET_CDP_PORT` environment variable.
 
-2. Verify the CDP endpoint:
+2. Verify the connection:
 
 ```bash
-curl http://localhost:9333/json
+comet-claw status
 ```
 
 ## Usage
